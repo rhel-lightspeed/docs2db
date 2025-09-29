@@ -1,0 +1,39 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.5
+    hooks:
+      - id: ruff
+        args: [--fix]
+        exclude: ^(content|external_sources)/
+
+      - id: ruff-format
+        args: [--diff]
+        exclude: ^(content|external_sources)/
+
+      - id: ruff-format
+        exclude: ^(content|external_sources)/
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.23.1
+    hooks:
+      - id: gitleaks
+        files: ^(src/|tests/|tools/|queries/)
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-toml
+      - id: end-of-file-fixer
+        exclude: ^(content|external_sources)/
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+        exclude: ^(content|external_sources)/
+
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        types: [python]
+        files: ^src/docs2db/.*\.py$
