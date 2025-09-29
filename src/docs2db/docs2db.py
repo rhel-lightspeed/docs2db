@@ -16,11 +16,30 @@ from docs2db.database import (
 )
 from docs2db.embed import generate_embeddings
 from docs2db.exceptions import Docs2DBException
+from docs2db.ingest import ingest as ingest_command
 from docs2db.utils import cleanup_orphaned_workers
 
 logger = structlog.get_logger(__name__)
 
 app = typer.Typer(help="Make a RAG Database from source content")
+
+
+@app.command()
+def ingest(
+    source_path: Annotated[
+        str, typer.Argument(help="Path to directory or file to ingest")
+    ],
+    dry_run: Annotated[
+        bool, typer.Option(help="Show what would be processed without doing it")
+    ] = False,
+) -> None:
+    """Ingest files using docling to create JSON documents in /content directory."""
+    try:
+        if not ingest_command(source_path=source_path, dry_run=dry_run):
+            raise typer.Exit(1)
+    except Docs2DBException as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
 
 
 @app.command()

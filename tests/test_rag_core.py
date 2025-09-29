@@ -108,4 +108,3 @@ class TestRAGCore:
         assert len(result_1.documents) <= 1
         assert len(result_5.documents) <= 5
         assert len(result_5.documents) >= len(result_1.documents)
-
