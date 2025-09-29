@@ -1,0 +1,55 @@
+Open Source and Open Data in energy system modelling: Open Source Appeal  
+Published 25 February 2021  
+
+The PAC scenario suggests a trajectory with at least 65% greenhouse gas emission reductions by the year 2030 and net-zero emissions in a 100% renewable energy system by 2040.
+
+actors can work on one issue at the same time, thus perfecting the same data set. In order to be able to jointly use model building blocks, it is necessary to design the interfaces so that they can easily be integrated into other models. The open source community has already developed a number of such building blocks, and the standards used for this purpose are constantly being developed further.
+
+We require an efficient use of all available informational resources in order to be able to deal with the many questions which arise around the topic of climate change. Therefore, NGOs in particular should place themselves at the forefront of the open source movement.
+
+The PAC scenario as an example of good practice  
+Under the umbrella of the PAC project (Paris Agreement Compatible Scenarios for Energy Infrastructure), the European Environmental Bureau and Climate Action Network Europe endeavoured jointly in a bottom-up, collective research exercise to develop the key assumptions for a European-wide energy scenario that is aligned with the objective to limit global warming to 1.5 °C degree. The PAC scenario suggests a trajectory with at least 65% greenhouse gas emission reductions by the year 2030 and a 100% renewable energy system by 2040.
+
+Both EEB and CAN-E support the open source modelling community and decided to publish the PAC scenario under an open data licence. After publication, the data was immediately taken up by different research institutions.4 The first study results comparing the PAC scenario data are already available. A joint study by the TU Berlin/ DIW¹ was able to show the macroeconomic benefits of the decarbonisation path described in the PAC scenario, make statements about total emissions up to 2050 and prove that a stable energy supply with the generation mix assumed in the PAC scenario and with the inclusion of flexible consumers is possible even in extreme situations. The researchers also highlighted their interest in comparing PAC scenario findings with ongoing scenario building for 100% renewable energy systems as well as potentially feeding PAC scenario data into their GENeSYS-MOD modelling suite.
+
+In another project, the Karlsruhe Institute of Technology and Aarhus University have worked with the PAC scenarios by feeding the PAC scenario data into their open source model PyPSA-Eur-Sec2. This has provided new insights into the reliability of supply at country level, intra-European energy flows on an hourly basis and the optimal balance between renewable energy supply, storage, electrolysers and other loads.
+
+Advantages of open source data and code at a glance:  
+• Transparency: A fundamental quality of open source software and open source data is transparency. Transparent structures enable results to be traced, thus increasing trust in the necessity of measures and therefore acceptability. This is a central issue, for example when dealing with infrastructural measures such as grid development for the energy transition.  
+• Promotion of decision-making processes: If the reasoning behind measures is recognised and accepted by various actors, then results can be discussed more easily, and compromises found more quickly.  
+• Increase in quality: Open source enables developers from different institutions and elsewhere to work simultaneously on the expansion of a model system and the joint use of the software modules developed by the various teams. This way, errors can be identified more quickly, and simulations improved. This increases the speed of further developments and helps make simulations more robust.  
+• Cost savings: At present, similar modelling questions are repeatedly investigated using public funds. With open source software, parts of programmes can be used repeatedly, further developed and adapted. This leads to reduced development costs.  
+• Avoidance of consultant lock-in: If studies are commissioned based on open data and open code, the data can be reused by the commissioning entity or a different consultant in the future.  
+
+Licensing is simple! What you should do to be open  
+• Establish who owns the copyright before you distribute under an open licence. Only the copyright-holder can publish a document under an open licence. If you own the data just add a sentence saying, “This document is distributed under licence X”.  
+• Release any data or code you want to share under an open licence. A licence is a document which tells other users what they are allowed to do with the data or code, e.g. copying it, sharing it, etc. There are several standard licences you can use. See an overview of common licences below.  
+• When commissioning studies from consultants, insist on open data and code. This way you can reuse it, as can other NGOs, and you can benefit from the open work of others.  
+• Help campaign for an open energy modelling ecosystem. The more people work openly, the more benefits everyone reaps – network effects!  
+• Making code public is a bit more complicated but most programmers know what to be aware of.
+
+Worth knowing in open source / open source licences:  
+• A licence tells users what they can do with your data or code. For example, whether you can reuse it, modify it, or distribute it. You can also make requirements of users, for example that they credit you as the source (“attribution”) or that they release modifications under a similar licence (“share-alike”). Without a licence, default intellectual property restrictions apply.  
+• There are standard licences which most people use. Don’t reinvent the wheel! Standard licences have been written by experts and legally tested in court.  
+• For data, the Creative Commons Licence is often used. For example, the European Commission recommends the “Creative Commons Attribution 4.0 International Licence”. This licence has also been used by the German Federal Network Agency (BNetzA for the SMARD platform), ENTSO-E for TYNDP 2020 Scenario Data, and many others.  
+Which open licences do people typically use?  
+A selection of open data projects with their licences  
+dataset/report licence link to dedication  
+European Commission data CC BY 4.0 announcement6  
+dataset/report licence link to dedication  
+Bundesnetzagentur SMARD platform for electricity market data CC BY 4.0 SMARD Datennutzung  
+eurostat custom custom re-use notice  
+French energy network data (RTE, GRTgaz, etc.) Licence Ouverte Licence Ouverte  
+JRC-EU-TIMES CC BY 4.0 zenodo record  
+JRC report on net-zero scenarios CC BY 4.0 JRC report  
+OpenStreetMap ODbL Copyright page  
+Wikipedia CC BY SA 3.0 Wikipedia License  
+CC BY 4.0 = Creative Commons Attribution 4.0 International License  
+CC BY SA 3.0 = Creative Commons Attribution-ShareAlike 3.0 Unported License  
+ODbL = Open Data Commons Open Database License  
+Here is a selection of open model code projects with their licences:  
+model licence link to dedication  
+calliope Apache 2.0 LICENSE  
+oemof MIT LICENSE  
+SWITCH Apache 2.0 LICENSE  
+
