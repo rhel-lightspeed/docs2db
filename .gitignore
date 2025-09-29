@@ -1,3 +1,6 @@
+# Generated content directory from ingestion
+/content/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

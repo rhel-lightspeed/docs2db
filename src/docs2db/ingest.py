@@ -137,7 +137,9 @@ def ingest(source_path: str, dry_run: bool = False) -> bool:
         logger.info("Dry run mode - would process:")
         for source_file in find_ingestible_files(source_root):
             content_path = generate_content_path(source_file, source_root)
-            logger.info(source_file.name, source=str(source_file), target=str(content_path))
+            logger.info(
+                source_file.name, source=str(source_file), target=str(content_path)
+            )
         return True
 
     converter = DocumentConverter()
