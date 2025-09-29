@@ -1,0 +1,9 @@
+{
+  "title": "Sample Test Document",
+  "content": "This is a sample document used for testing the docs2db loader functionality. It contains multiple paragraphs to demonstrate chunking behavior.\n\nThis is the second paragraph of the test document. It provides additional content to ensure we have enough text for meaningful chunks.\n\nThe third paragraph concludes our test document with some final thoughts on the testing process.",
+  "metadata": {
+    "source": "test",
+    "type": "documentation",
+    "created_at": "2024-01-01T00:00:00Z"
+  }
+}

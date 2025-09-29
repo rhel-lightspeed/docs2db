@@ -1,0 +1,94 @@
+[project]
+name = "docs2db"
+version = "0.1.0"
+description = "Repository of docling documents for RAG"
+readme = "README.md"
+authors = [{ name = "Major Hayden", email = "major@redhat.com" }]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "cachetools>=6.1.0",
+    "docling>=2.42.1",
+    "gql[httpx]>=3.5.3",
+    "httpx>=0.28.1",
+    "pgvector>=0.3.8",
+    "psycopg[binary]>=3.2.3",
+    "psycopg-pool>=3.2.6",
+    "pydantic-settings>=2.10.1",
+    "pyyaml>=6.0.1",
+    "rich>=14.0.0",
+    "structlog>=25.4.0",
+    "torch>=2.7.1",
+    "tqdm>=4.67.1",
+    "xxhash>=3.5.0",
+    "fastapi>=0.116.1",
+    "uvicorn>=0.35.0",
+    "llama-stack>=0.2.20",
+]
+
+[project.scripts]
+docs2db = "docs2db.docs2db:app"
+
+[build-system]
+requires = ["uv_build>=0.8.2,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "datamodel-code-generator>=0.32.0",
+    "greenlet>=3.0.0",
+    "ipython>=9.4.0",
+    "pre-commit>=4.3.0",
+    "pyright>=1.1.403",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.2.1",
+    "pytest-httpx>=0.35.0",
+    "pytest-randomly>=3.16.0",
+    "pytest-sugar>=1.0.0",
+    "python-gitlab>=6.1.0",
+    "ruff>=0.12.4",
+    "tox>=4.28.1",
+    "types-cachetools>=6.1.0.20250717",
+    "types-tqdm>=4.67.0.20250516",
+]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--cov=docs2db",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-branch",
+    "--color=yes",
+]
+# Having problems with tests? Uncomment the following line to see more output.
+# log_cli = false
+# log_level = "DEBUG"
+log_format = "%(asctime)s %(levelname)s %(message)s"
+log_date_format = "%Y-%m-%d %H:%M:%S"
+testpaths = ["tests"]
+markers = [
+    "no_ci: marks tests that should not run in CI (require external services, podman, etc.)"
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+fix = true
+
+[tool.ruff.lint]
+select = ["I"]  # Enable import sorting rules
+
+[tool.ruff.format]
+preview = true

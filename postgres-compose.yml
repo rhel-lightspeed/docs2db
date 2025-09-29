@@ -1,0 +1,59 @@
+name: docs2db
+
+services:
+  db:
+    container_name: docs2db-db
+    profiles: ["prod"]
+    image: docker.io/pgvector/pgvector:pg17
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secrete
+      POSTGRES_DB: ragdb  # If you change this, change db-drop in makefile.
+    ports:
+      - 5432:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  test-db:
+    # Test database (only runs with --profile test)
+    container_name: docs2db-test-db
+    profiles: ["test"]
+    image: docker.io/pgvector/pgvector:pg17
+    restart: always
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: test_docs2db
+    ports:
+      - 5433:5432
+    volumes:
+      - test_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d test_docs2db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    container_name: docs2db-adminer
+    profiles: ["prod", "tools"]
+    image: docker.io/library/adminer:latest
+    restart: always
+    ports:
+      - 8080:8080
+
+  pgadmin:
+    container_name: docs2db-pgadmin
+    profiles: ["prod", "tools"]
+    image: docker.io/dpage/pgadmin4:latest
+    restart: always
+    ports:
+      - 5050:80
+    environment:
+      PGADMIN_DEFAULT_EMAIL: major@mhtx.net
+      PGADMIN_DEFAULT_PASSWORD: secrete
+
+volumes:
+  pgdata:
+  test_pgdata:

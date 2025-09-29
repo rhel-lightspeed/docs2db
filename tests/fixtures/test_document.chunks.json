@@ -1,0 +1,34 @@
+{
+  "chunks": [
+    {
+      "text": "This is a sample document used for testing the docs2db loader functionality. It contains multiple paragraphs to demonstrate chunking behavior.",
+      "metadata": {
+        "page": 1,
+        "section": "introduction",
+        "chunk_index": 0
+      }
+    },
+    {
+      "text": "This is the second paragraph of the test document. It provides additional content to ensure we have enough text for meaningful chunks.",
+      "metadata": {
+        "page": 1,
+        "section": "body",
+        "chunk_index": 1
+      }
+    },
+    {
+      "text": "The third paragraph concludes our test document with some final thoughts on the testing process.",
+      "metadata": {
+        "page": 1,
+        "section": "conclusion",
+        "chunk_index": 2
+      }
+    }
+  ],
+  "metadata": {
+    "total_chunks": 3,
+    "model": "test-chunker",
+    "chunk_size": 100,
+    "overlap": 10
+  }
+}
