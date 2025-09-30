@@ -24,7 +24,7 @@ The ingestion process populates `/content` with Docling doc files in json format
 
 Ingest documents with `uv run docs2db ingest path/to/source/files`
 
-Source files can be in a directory structure, it will be recreated in the `/content` directory that gets creted. Source files may be any type that Docling
+Source files can be in a directory structure, it will be recreated in the `/content` directory that gets created. Source files may be any type that Docling
 can ingest: `.html`, `.htm`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.md`, `.csv`
 
 ## Processing
