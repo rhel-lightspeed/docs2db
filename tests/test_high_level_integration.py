@@ -383,8 +383,14 @@ class TestHighLevelIntegrationSQL:
                 "Chunks and embeddings should match"
             )
 
-            # Verify all ingested documents are in database
+            # Verify all documents with embeddings are in database
             final_doc_paths = await get_document_paths(conn)
-            assert final_doc_paths == expected_json_files, (
-                f"Expected {expected_json_files}, got {final_doc_paths}"
+            # Only documents with embeddings get loaded into the database
+            # So we should expect the same documents that have .gran.json files
+            expected_final_doc_names = {
+                Path(f.replace(".gran.json", ".json")).name
+                for f in expected_embed_files
+            }
+            assert final_doc_paths == expected_final_doc_names, (
+                f"Expected {expected_final_doc_names}, got {final_doc_paths}"
             )
