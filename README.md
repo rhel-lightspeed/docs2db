@@ -44,7 +44,7 @@ Use `uv run docs2db chunks --help` or `uv run docs2db embed --help` to learn mor
 
 ## Database
 
-The codex project uses PostgreSQL with the pgvector extension for storing documents, chunks, and embeddings.
+Docs2DB uses PostgreSQL with the pgvector extension for storing documents, chunks, and embeddings.
 
 - `make db-up`
     - creates the database if it doesn't exist
