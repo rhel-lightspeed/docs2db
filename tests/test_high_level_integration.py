@@ -45,37 +45,10 @@ class TestHighLevelIntegrationSQL:
     """High-level integration test for the complete Docs2DB pipeline."""
 
     @pytest.fixture
-    def test_content_dir(self, tmp_path: Path) -> Path:
-        """Create a temporary content directory by ingesting real test documents."""
-        # Set up source and content directories
-        test_fixtures_dir = Path(__file__).parent / "fixtures" / "input"
-        content_dir = tmp_path / "content"
-
-        # Change to tmp_path so ingest creates content/ in the right place
-        original_cwd = Path.cwd()
-        import os
-
-        os.chdir(tmp_path)
-
-        try:
-            # Ingest documents from test fixtures - this creates real docling JSON files
-            success = ingest(str(test_fixtures_dir), dry_run=False, force=True)
-            assert success, "Ingestion should succeed for test setup"
-
-            # Verify content directory was created with ingested files
-            assert content_dir.exists(), (
-                "Content directory should be created by ingestion"
-            )
-
-            # Verify we have some JSON files (the exact count depends on what's in fixtures)
-            json_files = list(content_dir.glob("**/*.json"))
-            assert len(json_files) > 0, "Should have ingested at least one document"
-
-            return content_dir
-
-        finally:
-            # Restore original working directory
-            os.chdir(original_cwd)
+    def test_workspace_dir(self, tmp_path: Path) -> Path:
+        """Create a temporary workspace directory with test input files."""
+        # Just return the temp directory - the test will handle ingestion
+        return tmp_path
 
     def get_file_set(self, directory: Path, pattern: str = "*") -> Set[str]:
         """Get a set of filenames matching the pattern in the directory."""
@@ -106,7 +79,7 @@ class TestHighLevelIntegrationSQL:
 
     @pytest.mark.no_ci
     @pytest.mark.asyncio
-    async def test_complete_pipeline_sql(self, test_content_dir: Path):
+    async def test_complete_pipeline_sql(self, test_workspace_dir: Path):
         """Test the complete pipeline with all stages and idempotency checks."""
 
         config = get_test_db_config()
@@ -133,20 +106,46 @@ class TestHighLevelIntegrationSQL:
 
         await db_manager.initialize_schema()
 
-        # === PHASE 1: Initial Processing ===
+        # === PHASE 0: Ingestion ===
 
-        # Test initial chunking - get the actual ingested files
-        initial_files = self.get_file_set(test_content_dir, "**/*.json")
-        assert len(initial_files) > 0, "Should have ingested JSON files"
+        # Set up source files and workspace
+        test_fixtures_dir = Path(__file__).parent / "fixtures" / "input"
+        content_dir = test_workspace_dir / "content"
+
+        # Change to workspace directory so ingest creates content/ in the right place
+        original_cwd = Path.cwd()
+        import os
+
+        os.chdir(test_workspace_dir)
+
+        try:
+            # Test ingestion - convert raw files to Docling JSON
+            success = ingest(str(test_fixtures_dir), dry_run=False, force=True)
+            assert success, "Ingestion should succeed"
+
+            # Verify content directory was created with ingested files
+            assert content_dir.exists(), (
+                "Content directory should be created by ingestion"
+            )
+
+            # Get the ingested JSON files
+            initial_files = self.get_file_set(content_dir, "**/*.json")
+            assert len(initial_files) > 0, "Should have ingested JSON files"
+
+        finally:
+            # Restore original working directory
+            os.chdir(original_cwd)
+
+        # === PHASE 1: Chunking ===
 
         # Store the initial file set for later comparisons
         expected_json_files = initial_files.copy()
 
-        success = generate_chunks(str(test_content_dir), "**/*.json", force=False)
+        success = generate_chunks(str(content_dir), "**/*.json", force=False)
         assert success, "Initial chunking should succeed"
 
         # Verify chunk files were created correctly
-        chunk_files = self.get_file_set(test_content_dir, "**/*.chunks.json")
+        chunk_files = self.get_file_set(content_dir, "**/*.chunks.json")
         expected_chunk_files = {
             f.replace(".json", ".chunks.json") for f in expected_json_files
         }
@@ -155,7 +154,7 @@ class TestHighLevelIntegrationSQL:
         )
 
         # Verify no unexpected files were created
-        all_files_after_chunking = self.get_file_set(test_content_dir, "**/*")
+        all_files_after_chunking = self.get_file_set(content_dir, "**/*")
         expected_files_after_chunking = initial_files | expected_chunk_files
         assert all_files_after_chunking == expected_files_after_chunking, (
             "Unexpected files created during chunking"
@@ -163,7 +162,7 @@ class TestHighLevelIntegrationSQL:
 
         # Verify chunks content is correct
         for chunk_file in chunk_files:
-            chunk_path = test_content_dir / chunk_file
+            chunk_path = content_dir / chunk_file
             with open(chunk_path) as f:
                 chunk_data = json.load(f)
 
@@ -182,7 +181,7 @@ class TestHighLevelIntegrationSQL:
 
         # Test initial embedding
         success = generate_embeddings(
-            str(test_content_dir),
+            str(content_dir),
             "granite-30m-english",
             "**/*.chunks.json",
             force=False,
@@ -190,12 +189,12 @@ class TestHighLevelIntegrationSQL:
         assert success, "Initial embedding generation should succeed"
 
         # Verify embedding files were created correctly
-        embed_files = self.get_file_set(test_content_dir, "**/*.gran.json")
+        embed_files = self.get_file_set(content_dir, "**/*.gran.json")
 
         # Only expect .gran.json files for chunk files that actually have chunks
         expected_embed_files = set()
         for chunk_file in chunk_files:
-            chunk_path = test_content_dir / chunk_file
+            chunk_path = content_dir / chunk_file
             with open(chunk_path) as f:
                 chunk_data = json.load(f)
             # Only expect .gran.json if there are actual chunks to embed
@@ -209,7 +208,7 @@ class TestHighLevelIntegrationSQL:
         )
 
         # Verify no unexpected files were created
-        all_files_after_embedding = self.get_file_set(test_content_dir, "**/*")
+        all_files_after_embedding = self.get_file_set(content_dir, "**/*")
         expected_files_after_embedding = (
             expected_files_after_chunking | expected_embed_files
         )
@@ -219,7 +218,7 @@ class TestHighLevelIntegrationSQL:
 
         # Verify embeddings content is correct
         for embed_file in embed_files:
-            embed_path = test_content_dir / embed_file
+            embed_path = content_dir / embed_file
             with open(embed_path) as f:
                 embed_data = json.load(f)
 
@@ -236,7 +235,7 @@ class TestHighLevelIntegrationSQL:
                 )
 
         success = await load_documents(
-            content_dir=str(test_content_dir),
+            content_dir=str(content_dir),
             model_name="granite-30m-english",
             pattern="**/*.json",
             host=config["host"],
@@ -283,22 +282,22 @@ class TestHighLevelIntegrationSQL:
         # === PHASE 2: Idempotency Tests ===
 
         # Store file modification times before idempotency tests
-        chunk_mtimes_before = self.get_file_mtimes(test_content_dir, "*.chunks.json")
-        embed_mtimes_before = self.get_file_mtimes(test_content_dir, "*.gran.json")
+        chunk_mtimes_before = self.get_file_mtimes(content_dir, "*.chunks.json")
+        embed_mtimes_before = self.get_file_mtimes(content_dir, "*.gran.json")
 
         # Test chunking idempotency
-        success = generate_chunks(str(test_content_dir), "**/*.json", force=False)
+        success = generate_chunks(str(content_dir), "**/*.json", force=False)
         assert success, "Chunking re-run should succeed"
 
         # Verify no chunk files changed
-        chunk_mtimes_after = self.get_file_mtimes(test_content_dir, "*.chunks.json")
+        chunk_mtimes_after = self.get_file_mtimes(content_dir, "*.chunks.json")
         assert chunk_mtimes_before == chunk_mtimes_after, (
             "Chunk files should not change on re-run"
         )
 
         # Test embedding idempotency
         success = generate_embeddings(
-            str(test_content_dir),
+            str(content_dir),
             "granite-30m-english",
             "**/*.chunks.json",
             force=False,
@@ -306,14 +305,14 @@ class TestHighLevelIntegrationSQL:
         assert success, "Embedding re-run should succeed"
 
         # Verify no embedding files changed
-        embed_mtimes_after = self.get_file_mtimes(test_content_dir, "*.gran.json")
+        embed_mtimes_after = self.get_file_mtimes(content_dir, "*.gran.json")
         assert embed_mtimes_before == embed_mtimes_after, (
             "Embedding files should not change on re-run"
         )
 
         # Test database load idempotency
         success = await load_documents(
-            content_dir=str(test_content_dir),
+            content_dir=str(content_dir),
             model_name="granite-30m-english",
             pattern="**/*.json",
             host=config["host"],
@@ -335,11 +334,11 @@ class TestHighLevelIntegrationSQL:
         # === PHASE 3: Force Re-processing Test ===
 
         # Test force re-processing to ensure the pipeline can handle force flags
-        success = generate_chunks(str(test_content_dir), "**/*.json", force=True)
+        success = generate_chunks(str(content_dir), "**/*.json", force=True)
         assert success, "Force chunking should succeed"
 
         success = generate_embeddings(
-            str(test_content_dir),
+            str(content_dir),
             "granite-30m-english",
             "**/*.chunks.json",
             force=True,
@@ -347,7 +346,7 @@ class TestHighLevelIntegrationSQL:
         assert success, "Force embedding should succeed"
 
         success = await load_documents(
-            content_dir=str(test_content_dir),
+            content_dir=str(content_dir),
             model_name="granite-30m-english",
             pattern="**/*.json",
             host=config["host"],
@@ -362,7 +361,7 @@ class TestHighLevelIntegrationSQL:
         # === FINAL VERIFICATION ===
 
         # Verify final file set is complete and correct
-        final_files = self.get_file_set(test_content_dir, "**/*")
+        final_files = self.get_file_set(content_dir, "**/*")
         expected_final_files = (
             expected_json_files  # Source documents
             | expected_chunk_files  # Chunk files
