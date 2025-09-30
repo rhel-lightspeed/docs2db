@@ -8,6 +8,16 @@ Docs2DB builds a RAG database from a directory of content files. It:
 - Processes data into chunks and embeddings (Granite, others are possible)
 - Loads data in a PostgresDB and produces pg_dump files (Milvus is possible)
 
+## Quickstart
+
+`make docs2db SOURCE=/Users/me/Documents/my-pdfs`
+
+This will create a `ragdb_dump.sql` you may use for RAG in Postrgesql.
+
+Test your rag with:
+- `make db-up` (restarts the db you just created, it's still there)
+- `uv run python ./scripts/rag_demo_client.py --interactive`
+
 ## Ingestion
 
 The ingestion process populates `/content` with Docling doc files in json format.

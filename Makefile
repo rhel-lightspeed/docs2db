@@ -1,4 +1,7 @@
-.PHONY: test test-ci lint typecheck db-up db-down db-logs db-status db-drop db-dump db-up-test db-down-test cleanup-workers list all
+.PHONY: test test-ci lint typecheck db-up db-down db-logs db-status db-drop db-dump db-up-test db-down-test cleanup-workers docs2db list all
+
+# Default source directory for docs2db target
+SOURCE ?= tests/fixtures/input
 
 test:
 	uv run pytest
@@ -37,6 +40,24 @@ db-dump:
 cleanup-workers:
 	uv run docs2db cleanup-workers
 
+docs2db:
+	@echo "Starting Docs2DB..."
+	@echo "Starting database..."
+	$(MAKE) db-up
+	@echo "Ingesting documents from $(SOURCE)..."
+	uv run docs2db ingest $(SOURCE)
+	@echo "Chunking documents..."
+	uv run docs2db chunk
+	@echo "Generating embeddings..."
+	uv run docs2db embed
+	@echo "Loading into database..."
+	uv run docs2db load
+	@echo "Creating database dump..."
+	uv run docs2db db-dump
+	@echo "Stopping database..."
+	$(MAKE) db-down
+	@echo "Docs2DB complete, ragdb_dump.sql created."
+
 # Test database targets (using profiles)
 db-up-test:
 	podman compose -f postgres-compose.yml --profile test up -d
@@ -56,6 +77,18 @@ test-with-db: db-up-test
 	$(MAKE) db-down-test
 
 list:
-	@grep -A1 '^.PHONY' Makefile | sed 's/^\.PHONY:[[:space:]]*//'
+	@echo "Available targets:"
+	@echo "  docs2db      - Complete docs2db pipeline (db-up -> ingest -> chunk -> embed -> load -> db-dump -> db-down)"
+	@echo "                 Usage: make docs2db [SOURCE=/path/to/documents] (default: tests/fixtures/input)"
+	@echo "  test         - Run all tests"
+	@echo "  test-ci      - Run CI tests (excluding no_ci marked tests)"
+	@echo "  lint         - Run code linting and formatting"
+	@echo "  typecheck    - Run type checking"
+	@echo "  db-up        - Start production database"
+	@echo "  db-down      - Stop production database"
+	@echo "  db-status    - Check database status"
+	@echo "  db-dump      - Create database dump"
+	@echo "  db-drop      - Stop database and remove data"
+	@echo "  cleanup-workers - Clean up any orphaned worker processes"
 
 all: lint test typecheck
