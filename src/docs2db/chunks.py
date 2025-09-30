@@ -84,7 +84,13 @@ def source_files(
 
     # Ignore chunk and embed files.
     def source_files_iter():
-        return (f for f in content.glob(pattern) if f.name.count(".") == 1)
+        return (
+            f
+            for f in content.glob(pattern)
+            if not f.name.endswith(".chunks.json")
+            and not f.name.endswith(".gran.json")
+            and f.suffix == ".json"
+        )
 
     count = sum(1 for _ in source_files_iter())
     return count, source_files_iter()
