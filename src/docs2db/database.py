@@ -13,7 +13,6 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import psutil
 import psycopg
-import psycopg_pool
 import structlog
 import yaml
 from psycopg.sql import SQL, Identifier
@@ -61,53 +60,22 @@ class DatabaseManager:
         database: str,
         user: str,
         password: str,
-        max_connections: int = 10,
     ):
         self.host = host
         self.port = port
         self.database = database
         self.user = user
         self.password = password
-        self.max_connections = max_connections
-        self._pool = None
 
-    async def get_connection_pool(self):
-        """Get or create the connection pool."""
-        if self._pool is None:
-            try:
-                # Suppress psycopg warnings for cleaner error messages
-                warnings.filterwarnings(
-                    "ignore", category=RuntimeWarning, module="psycopg_pool"
-                )
-
-                connection_string = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
-
-                self._pool = psycopg_pool.AsyncConnectionPool(
-                    connection_string,
-                    min_size=1,
-                    max_size=self.max_connections,
-                    timeout=5.0,  # 5 second timeout for connections
-                )
-
-            except ImportError:
-                raise ImportError(
-                    "Database operations require 'psycopg[binary]' and 'pgvector'. "
-                    "Install with: pip install psycopg[binary] pgvector"
-                ) from None
-        return self._pool
-
-    async def close_pool(self):
-        """Close the connection pool."""
-        if self._pool:
-            await self._pool.close()
-            self._pool = None
+    async def get_direct_connection(self):
+        """Get a direct database connection."""
+        connection_string = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        return await psycopg.AsyncConnection.connect(connection_string)
 
     async def initialize_schema(self) -> None:
         """Initialize database schema with tables for documents, chunks, and embeddings."""
-        pool = await self.get_connection_pool()
-
-        # Check if schema already exists
-        async with pool.connection() as conn:
+        # Check if schema already exists and create it if needed
+        async with await self.get_direct_connection() as conn:
             tables_result = await conn.execute("""
                 SELECT table_name
                 FROM information_schema.tables
@@ -117,7 +85,7 @@ class DatabaseManager:
             existing_tables = [row[0] for row in await tables_result.fetchall()]
             schema_exists = len(existing_tables) == 3
 
-        schema_sql = """
+            schema_sql = """
         -- Enable pgvector extension
         CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -187,7 +155,6 @@ class DatabaseManager:
         $$;
         """
 
-        async with pool.connection() as conn:
             await conn.execute(schema_sql)
             await conn.commit()
 
@@ -203,7 +170,6 @@ class DatabaseManager:
         force: bool = False,
     ) -> Tuple[int, int]:
         """Load a batch of documents, chunks, and embeddings using bulk operations."""
-        pool = await self.get_connection_pool()
         processed = 0
         errors = 0
 
@@ -262,7 +228,7 @@ class DatabaseManager:
             return 0, errors
 
         # Bulk database operations
-        async with pool.connection() as conn:
+        async with await self.get_direct_connection() as conn:
             try:
                 # Begin transaction for entire batch
                 await conn.execute("BEGIN")
@@ -455,9 +421,7 @@ class DatabaseManager:
 
     async def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
-        pool = await self.get_connection_pool()
-
-        async with pool.connection() as conn:
+        async with await self.get_direct_connection() as conn:
             # Document stats
             doc_result = await conn.execute("SELECT COUNT(*) FROM documents")
             doc_row = await doc_result.fetchone()
@@ -500,9 +464,7 @@ class DatabaseManager:
         Returns:
             bool: True if successful, False otherwise
         """
-        pool = await self.get_connection_pool()
-
-        async with pool.connection() as conn:
+        async with await self.get_direct_connection() as conn:
             # Query for distinct document paths from documents table
             result = await conn.execute(
                 """
@@ -536,9 +498,7 @@ class DatabaseManager:
         similarity_threshold: float = 0.7,
     ) -> List[Dict[str, Any]]:
         """Search for similar chunks using vector similarity."""
-        pool = await self.get_connection_pool()
-
-        async with pool.connection() as conn:
+        async with await self.get_direct_connection() as conn:
             results = await conn.execute(
                 """
                 SELECT
@@ -626,165 +586,154 @@ async def check_database_status(
         password=password,
     )
 
+    # Section 1: Test basic PostgreSQL server connectivity
     try:
-        # Section 1: Test basic PostgreSQL server connectivity
-        try:
-            # First try a direct connection to catch auth errors immediately
-            basic_connection_string = (
-                f"postgresql://{user}:{password}@{host}:{port}/postgres"
+        # First try a direct connection to catch auth errors immediately
+        basic_connection_string = (
+            f"postgresql://{user}:{password}@{host}:{port}/postgres"
+        )
+
+        async with await psycopg.AsyncConnection.connect(
+            basic_connection_string, connect_timeout=5
+        ) as conn:
+            # Test basic connectivity
+            result = await conn.execute("SELECT version(), now()")
+            row = await result.fetchone()
+            if row:
+                _pg_version, _current_time = row
+                logger.info("Database connection successful")
+
+    except Exception as conn_error:
+        # Handle server connectivity errors
+        error_msg = str(conn_error).lower()
+        if (
+            "connection refused" in error_msg
+            or "could not receive data" in error_msg
+            or "couldn't get a connection" in error_msg
+        ):
+            logger.error("Database is not running. Start database with 'make db-up'")
+        elif (
+            "authentication failed" in error_msg
+            or "no password supplied" in error_msg
+            or "password authentication failed" in error_msg
+            or "role" in error_msg
+            and "does not exist" in error_msg
+        ):
+            logger.error("Database authentication failed. Check database credentials")
+        else:
+            logger.error("Database connection failed. Ensure PostgreSQL is running")
+
+        raise DatabaseError(f"Database connection failed: {conn_error}") from conn_error
+
+    # Section 2: Test target database connectivity
+    try:
+        # Now connect to our target database and test it
+        async with await db_manager.get_direct_connection() as conn:
+            # Test that we can actually query the target database
+            await conn.execute("SELECT 1")
+    except Exception as conn_error:
+        # If we get here, PostgreSQL is running but our target database doesn't exist
+        logger.error("Database does not exist. Create database or check name")
+        raise DatabaseError("Database does not exist") from conn_error
+
+    # If we get here, connection was successful, continue with checks
+
+    # Check for pgvector extension
+    async with await db_manager.get_direct_connection() as conn:
+        ext_result = await conn.execute(
+            "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
+        )
+        ext_row = await ext_result.fetchone()
+        if ext_row:
+            _ext_name, ext_version = ext_row
+            logger.info(f"pgvector extension found: version={ext_version}")
+        else:
+            logger.error(
+                "pgvector extension not installed. "
+                "Run 'uv run docs2db load' to initialize"
             )
+            raise DatabaseError("pgvector extension not installed")
 
-            async with await psycopg.AsyncConnection.connect(
-                basic_connection_string, connect_timeout=5
-            ) as conn:
-                # Test basic connectivity
-                result = await conn.execute("SELECT version(), now()")
-                row = await result.fetchone()
-                if row:
-                    _pg_version, _current_time = row
-                    logger.info("Database connection successful")
-
-        except Exception as conn_error:
-            # Handle server connectivity errors
-            error_msg = str(conn_error).lower()
-            if (
-                "connection refused" in error_msg
-                or "could not receive data" in error_msg
-                or "couldn't get a connection" in error_msg
-            ):
-                logger.error(
-                    "Database is not running. Start database with 'make db-up'"
-                )
-            elif (
-                "authentication failed" in error_msg
-                or "no password supplied" in error_msg
-                or "password authentication failed" in error_msg
-                or "role" in error_msg
-                and "does not exist" in error_msg
-            ):
-                logger.error(
-                    "Database authentication failed. Check database credentials"
-                )
-            else:
-                logger.error("Database connection failed. Ensure PostgreSQL is running")
-
-            raise DatabaseError(
-                f"Database connection failed: {conn_error}"
-            ) from conn_error
-
-        # Section 2: Test target database connectivity
-        try:
-            # Now connect to our target database and test it
-            pool = await db_manager.get_connection_pool()
-            async with pool.connection() as conn:
-                # Test that we can actually query the target database
-                await conn.execute("SELECT 1")
-        except Exception as conn_error:
-            # If we get here, PostgreSQL is running but our target database doesn't exist
-            logger.error("Database does not exist. Create database or check name")
-            raise DatabaseError("Database does not exist") from conn_error
-
-        # If we get here, connection was successful, continue with checks
-
-        # Check for pgvector extension
-        async with pool.connection() as conn:
-            ext_result = await conn.execute(
-                "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
-            )
-            ext_row = await ext_result.fetchone()
-            if ext_row:
-                _ext_name, ext_version = ext_row
-                logger.info(f"pgvector extension found: version={ext_version}")
-            else:
-                logger.error(
-                    "pgvector extension not installed. "
-                    "Run 'uv run docs2db load' to initialize"
-                )
-                raise DatabaseError("pgvector extension not installed")
-
-        # Check if tables exist
-        async with pool.connection() as conn:
-            tables_result = await conn.execute("""
+    # Check if tables exist
+    async with await db_manager.get_direct_connection() as conn:
+        tables_result = await conn.execute("""
                 SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                 AND table_name IN ('documents', 'chunks', 'embeddings')
                 ORDER BY table_name
             """)
-            tables = []
-            async for row in tables_result:
-                tables.append(row[0])
+        tables = []
+        async for row in tables_result:
+            tables.append(row[0])
 
-            if len(tables) == 3:
-                logger.info("All required tables exist")
-            elif len(tables) > 0:
-                logger.error(
-                    "Partial schema found. Run 'uv run docs2db load' to initialize"
-                )
-                raise DatabaseError("Partial schema found")
-            else:
-                logger.error(
-                    "No docs2db tables found. Run 'uv run docs2db load' to initialize"
-                )
-                raise DatabaseError("No docs2db tables found")
+        if len(tables) == 3:
+            logger.info("All required tables exist")
+        elif len(tables) > 0:
+            logger.error(
+                "Partial schema found. Run 'uv run docs2db load' to initialize"
+            )
+            raise DatabaseError("Partial schema found")
+        else:
+            logger.error(
+                "No docs2db tables found. Run 'uv run docs2db load' to initialize"
+            )
+            raise DatabaseError("No docs2db tables found")
 
-        # Get database statistics
-        stats = await db_manager.get_stats()
+    # Get database statistics
+    stats = await db_manager.get_stats()
 
-        total_embeddings = sum(
-            model_info["count"] for model_info in stats["embedding_models"].values()
-        )
+    total_embeddings = sum(
+        model_info["count"] for model_info in stats["embedding_models"].values()
+    )
 
-        logger.info(
-            "\nDatabase statistics summary:\n"
-            f"  documents : {stats['documents']}\n"
-            f"  chunks    : {stats['chunks']}\n"
-            f"  embeddings: {total_embeddings}\n"
-        )
+    logger.info(
+        "\nDatabase statistics summary:\n"
+        f"  documents : {stats['documents']}\n"
+        f"  chunks    : {stats['chunks']}\n"
+        f"  embeddings: {total_embeddings}\n"
+    )
 
-        # Log embedding models breakdown
-        if stats["embedding_models"]:
-            for model_name, model_info in stats["embedding_models"].items():
-                logger.info(
-                    "\nEmbedding model details:\n"
-                    f"model     : {model_name}\n"
-                    f"embeddings: {model_info['count']}\n"
-                    f"dimensions: {model_info['dimensions']}"
-                )
+    # Log embedding models breakdown
+    if stats["embedding_models"]:
+        for model_name, model_info in stats["embedding_models"].items():
+            logger.info(
+                "\nEmbedding model details:\n"
+                f"model     : {model_name}\n"
+                f"embeddings: {model_info['count']}\n"
+                f"dimensions: {model_info['dimensions']}"
+            )
 
-        if stats["documents"] > 0:
-            # Get recent activity
-            async with pool.connection() as conn:
-                recent_result = await conn.execute("""
-                    SELECT
-                        filename,
-                        created_at,
-                        updated_at
-                    FROM documents
-                    ORDER BY updated_at DESC
-                    LIMIT 5
-                """)
+    if stats["documents"] > 0:
+        # Get recent activity
+        async with await db_manager.get_direct_connection() as conn:
+            recent_result = await conn.execute("""
+                SELECT
+                    filename,
+                    created_at,
+                    updated_at
+                FROM documents
+                ORDER BY updated_at DESC
+                LIMIT 5
+            """)
 
-                file_str = ""
-                async for row in recent_result:
-                    filename, created_at, updated_at = row
-                    file_str += f"  {filename}\n    created: {created_at.strftime('%Y-%m-%d %H:%M')}\n    updated: {updated_at.strftime('%Y-%m-%d %H:%M') if updated_at else 'Never'}\n"
-                logger.info(f"\nRecent document activity (last 5)\n{file_str}")
+            file_str = ""
+            async for row in recent_result:
+                filename, created_at, updated_at = row
+                file_str += f"  {filename}\n    created: {created_at.strftime('%Y-%m-%d %H:%M')}\n    updated: {updated_at.strftime('%Y-%m-%d %H:%M') if updated_at else 'Never'}\n"
+            logger.info(f"\nRecent document activity (last 5)\n{file_str}")
 
-            # Database size information
-            async with pool.connection() as conn:
-                size_result = await conn.execute(
-                    "SELECT pg_size_pretty(pg_database_size(%s)) as db_size", (db,)
-                )
-                size_row = await size_result.fetchone()
-                if size_row:
-                    db_size = size_row[0]
-                    logger.info(f"Database size: {db_size}")
+        # Database size information
+        async with await db_manager.get_direct_connection() as conn:
+            size_result = await conn.execute(
+                "SELECT pg_size_pretty(pg_database_size(%s)) as db_size", (db,)
+            )
+            size_row = await size_result.fetchone()
+            if size_row:
+                db_size = size_row[0]
+                logger.info(f"Database size: {db_size}")
 
-        logger.info("Database status check completed successfully")
-
-    finally:
-        await db_manager.close_pool()
+    logger.info("Database status check completed successfully")
 
 
 async def load_files(
@@ -953,47 +902,43 @@ async def _load_batch_async(
         password=db_password,
     )
 
-    try:
-        # Prepare files data
-        files_data = []
-        for source_file in file_paths:
-            try:
-                # Check for chunks and embedding files
-                chunks_file = source_file.with_suffix(".chunks.json")
-                if not chunks_file.exists():
-                    continue
+    # Prepare files data
+    files_data = []
+    for source_file in file_paths:
+        try:
+            # Check for chunks and embedding files
+            chunks_file = source_file.with_suffix(".chunks.json")
+            if not chunks_file.exists():
+                continue
 
-                embedding_file = create_embedding_filename(chunks_file, model_name)
-                if not embedding_file.exists():
-                    continue
+            embedding_file = create_embedding_filename(chunks_file, model_name)
+            if not embedding_file.exists():
+                continue
 
-                # Load embedding data
-                with open(embedding_file, "r", encoding="utf-8") as f:
-                    embedding_data = json.load(f)
+            # Load embedding data
+            with open(embedding_file, "r", encoding="utf-8") as f:
+                embedding_data = json.load(f)
 
-                files_data.append((
-                    source_file,
-                    chunks_file,
-                    model_name,
-                    embedding_data,
-                    embedding_file,
-                ))
+            files_data.append((
+                source_file,
+                chunks_file,
+                model_name,
+                embedding_data,
+                embedding_file,
+            ))
 
-            except Exception as e:
-                logger.error(f"Failed to prepare {source_file.name}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to prepare {source_file.name}: {e}")
 
-        if not files_data:
-            return 0, 0
+    if not files_data:
+        return 0, 0
 
-        # Load the batch into database
-        processed, errors = await db_manager.load_document_batch(
-            files_data, content_dir, force
-        )
+    # Load the batch into database
+    processed, errors = await db_manager.load_document_batch(
+        files_data, content_dir, force
+    )
 
-        return processed, errors
-
-    finally:
-        await db_manager.close_pool()
+    return processed, errors
 
 
 async def load_documents(
@@ -1066,10 +1011,7 @@ async def load_documents(
         password=password,
     )
 
-    try:
-        await db_manager.initialize_schema()
-    finally:
-        await db_manager.close_pool()
+    await db_manager.initialize_schema()
 
     content_path = Path(content_dir)
     if not content_path.exists():
