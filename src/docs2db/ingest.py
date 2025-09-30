@@ -1,5 +1,6 @@
 """Ingest files using docling to create JSON documents."""
 
+import json
 import os
 from pathlib import Path
 from typing import Iterator
@@ -10,6 +11,29 @@ from docling.document_converter import DocumentConverter
 from docs2db.exceptions import Docs2DBException
 
 logger = structlog.get_logger(__name__)
+
+
+def is_ingestion_stale(content_file: Path, source_file: Path) -> bool:
+    """Check if content file is stale compared to source.
+
+    Args:
+        content_file: Path to the docling JSON file to check
+        source_file: Path to the source file to compare against
+
+    Returns:
+        bool: True if content file needs regeneration, False if current
+    """
+    if not content_file.exists():
+        return True
+
+    try:
+        content_mtime = content_file.stat().st_mtime
+        source_mtime = source_file.stat().st_mtime
+        return source_mtime > content_mtime
+
+    except (OSError, FileNotFoundError):
+        # If we can't stat the files, assume it needs regeneration
+        return True
 
 
 def find_ingestible_files(source_path: Path) -> Iterator[Path]:
@@ -107,12 +131,13 @@ def ingest_file(
         return False
 
 
-def ingest(source_path: str, dry_run: bool = False) -> bool:
+def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool:
     """Ingest all files from a source path into the content directory.
 
     Args:
         source_path: Path to search for files to ingest
         dry_run: If True, show what would be processed without doing it
+        force: If True, force reprocessing even if files are up-to-date
 
     Returns:
         bool: True if successful, False if any errors occurred
@@ -146,6 +171,12 @@ def ingest(source_path: str, dry_run: bool = False) -> bool:
 
     for source_file in find_ingestible_files(source_root):
         content_path = generate_content_path(source_file, source_root)
+
+        # Skip if file is up-to-date (unless force is True)
+        if not force and not is_ingestion_stale(content_path, source_file):
+            logger.info("Skipping up-to-date file", source=str(source_file))
+            success_count += 1
+            continue
 
         if ingest_file(source_file, content_path, converter):
             success_count += 1

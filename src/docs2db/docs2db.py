@@ -32,10 +32,13 @@ def ingest(
     dry_run: Annotated[
         bool, typer.Option(help="Show what would be processed without doing it")
     ] = False,
+    force: Annotated[
+        bool, typer.Option(help="Force reprocessing even if files are up-to-date")
+    ] = False,
 ) -> None:
     """Ingest files using docling to create JSON documents in /content directory."""
     try:
-        if not ingest_command(source_path=source_path, dry_run=dry_run):
+        if not ingest_command(source_path=source_path, dry_run=dry_run, force=force):
             raise typer.Exit(1)
     except Docs2DBException as e:
         logger.error(str(e))
