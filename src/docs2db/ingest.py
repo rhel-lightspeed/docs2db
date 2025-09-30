@@ -2,13 +2,16 @@
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Iterator
 
+import psutil
 import structlog
 from docling.document_converter import DocumentConverter
 
 from docs2db.exceptions import Docs2DBException
+from docs2db.multiproc import BatchProcessor, setup_worker_logging
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +37,64 @@ def is_ingestion_stale(content_file: Path, source_file: Path) -> bool:
     except (OSError, FileNotFoundError):
         # If we can't stat the files, assume it needs regeneration
         return True
+
+
+def ingest_batch(source_files: list[str], source_root: str, force: bool) -> dict:
+    """Worker function to ingest a batch of files.
+
+    Args:
+        source_files: List of source file paths (as strings)
+        source_root: Root directory path (as string)
+        force: Whether to force reprocessing
+
+    Returns:
+        dict: Results with successes, errors, error_data, last_file, memory, worker_logs
+    """
+    log_collector = setup_worker_logging(__name__)
+
+    successes = 0
+    errors = 0
+    error_data = []
+    last_file = ""
+
+    converter = DocumentConverter()
+    source_root_path = Path(source_root)
+
+    for file_str in source_files:
+        try:
+            last_file = file_str
+            source_file = Path(file_str)
+            content_path = generate_content_path(source_file, source_root_path)
+
+            # Skip if file is up-to-date (unless force is True)
+            if not force and not is_ingestion_stale(content_path, source_file):
+                logger.info(f"Skipping up-to-date file: {source_file.name}")
+                successes += 1
+                continue
+
+            if ingest_file(source_file, content_path, converter):
+                successes += 1
+            else:
+                errors += 1
+                error_data.append({"file": file_str, "error": "Ingestion failed"})
+
+        except Exception as e:
+            errors += 1
+            error_data.append({"file": file_str, "error": str(e)})
+            logger.error(f"Failed to process {file_str}: {e}")
+
+    # Report worker memory footprint
+    process = psutil.Process(os.getpid())
+    memory = process.memory_info().rss / 1024 / 1024  # MB
+
+    return {
+        "successes": successes,
+        "errors": errors,
+        "error_data": error_data,
+        "last_file": last_file,
+        "memory": round(memory, 1),
+        "worker_logs": log_collector.logs,
+    }
 
 
 def find_ingestible_files(source_path: Path) -> Iterator[Path]:
@@ -148,6 +209,7 @@ def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool
         raise Docs2DBException(f"Source path does not exist: {source_path}")
 
     logger.info("Starting ingestion", source_path=str(source_root), dry_run=dry_run)
+    start = time.time()
 
     file_count = sum(1 for _ in find_ingestible_files(source_root))
     if file_count == 0:
@@ -165,29 +227,23 @@ def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool
             )
         return True
 
-    converter = DocumentConverter()
-    success_count = 0
-    error_count = 0
-
-    for source_file in find_ingestible_files(source_root):
-        content_path = generate_content_path(source_file, source_root)
-
-        # Skip if file is up-to-date (unless force is True)
-        if not force and not is_ingestion_stale(content_path, source_file):
-            logger.info("Skipping up-to-date file", source=str(source_file))
-            success_count += 1
-            continue
-
-        if ingest_file(source_file, content_path, converter):
-            success_count += 1
-        else:
-            error_count += 1
-
-    logger.info(
-        "Ingestion completed",
-        total_files=file_count,
-        successful=success_count,
-        errors=error_count,
+    # Use multiprocessing for ingestion
+    processor = BatchProcessor(
+        worker_function=ingest_batch,
+        worker_args=(str(source_root), force),
+        progress_message="Ingesting files...",
+        batch_size=3,  # Smaller batches since docling can be memory-intensive
+        mem_threshold_mb=1500,  # Lower threshold for docling processes
     )
 
-    return error_count == 0
+    source_iter = find_ingestible_files(source_root)
+    processed, errors = processor.process_files(source_iter, file_count)
+    end = time.time()
+
+    if errors > 0:
+        logger.error(f"Ingestion completed with {errors} errors")
+        logger.info(f"{processed} files processed in {end - start:.2f} seconds")
+        return False
+
+    logger.info(f"{processed} files ingested in {end - start:.2f} seconds")
+    return True
