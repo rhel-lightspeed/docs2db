@@ -36,7 +36,7 @@ The `/content` directory holds Docling docs in .json format. In addition, it hol
     - creates a .chunks.json file for each source file
 - `uv run docs2db embed`
     - creates a .gran.json granite embedding file for each of these chunks files
-- `uv run audit`
+- `uv run docs2db audit`
     - reports the number of source, chunk and embedding files
     - logs warnings
 
