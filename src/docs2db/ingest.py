@@ -28,20 +28,18 @@ def find_ingestible_files(source_path: Path) -> Iterator[Path]:
         yield source_path
         return
 
-    # Common file extensions that docling can process
+    # File extensions that docling can process
+    # Based on docling's InputFormat enum
     supported_extensions = {
         ".html",
         ".htm",
         ".pdf",
-        ".docx",
-        ".doc",
-        ".pptx",
-        ".ppt",
-        ".xlsx",
-        ".xls",
+        ".docx",  # Note: .doc (older format) is NOT supported
+        ".pptx",  # Note: .ppt (older format) is NOT supported
+        ".xlsx",  # Note: .xls (older format) is NOT supported
         ".md",
-        ".txt",
-        ".rtf",
+        ".csv",
+        # Note: .txt and .rtf are NOT supported by docling
     }
 
     for file_path in source_path.rglob("*"):
