@@ -19,12 +19,10 @@ Ingest documents with `uv run docs2db ingest path/to/source/files`
 Before a database can be made or RAG can be served, the source documents need embeddings.
 
 The `/content` directory holds Docling docs in .json format. In addition, it holds chunks and embeddings files alongside each of those doc files.
-- `uv run docs2db chunks` 
+- `uv run docs2db chunks`
     - creates a .chunks.json file for each source file
-    - (~45 minutes on M3 developer Mac)
-- `uv run docs2db embed` 
+- `uv run docs2db embed`
     - creates a .gran.json granite embedding file for each of these chunks files
-    - (~3 hours on M3 developer Mac)
 - `uv run audit`
     - reports the number of source, chunk and embedding files
     - logs warnings
@@ -48,7 +46,7 @@ The codex project uses PostgreSQL with the pgvector extension for storing docume
     - use when you need a clean slate
 
 - `make load` (or `uv run docs2db load`)
-    - load all documents, chunks and embeddings into database (~4mins)
+    - load all documents, chunks and embeddings into database
     - initilize database schema
     - load pgvector
 
