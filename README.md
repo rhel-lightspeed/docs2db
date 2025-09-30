@@ -14,6 +14,9 @@ The ingestion process populates `/content` with Docling doc files in json format
 
 Ingest documents with `uv run docs2db ingest path/to/source/files`
 
+Source files can be in a directory structure, it will be recreated in the `/content` directory that gets creted. Source files may be any type that Docling
+can ingest: `.html`, `.htm`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.md`, `.csv`
+
 ## Processing
 
 Before a database can be made or RAG can be served, the source documents need embeddings.
@@ -59,3 +62,11 @@ The codex project uses PostgreSQL with the pgvector extension for storing docume
 
 - `make db-dump` (or `uv run docs2db db-dump`)
     - make `ragdb_dump.sql` from the current Postgresql database
+
+## Testing
+
+Try out your RAG database with the demo client
+- `uv run python scripts/rag_demo_client.py --query "wind energy" --limit 3`
+- `uv run python scripts/rag_demo_client.py --interactive`
+
+Automated testing requires its own postgres database, start one with `make db-up-test` and run tests with `make test` (or `uv run docs2db test`)
