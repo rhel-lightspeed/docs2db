@@ -1150,6 +1150,94 @@ def dump_database(
         ) from e
 
 
+def restore_database(
+    input_file: str,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    db: Optional[str] = None,
+    user: Optional[str] = None,
+    password: Optional[str] = None,
+    verbose: bool = False,
+) -> bool:
+    """Restore a PostgreSQL database from a dump file.
+
+    Args:
+        input_file: Input file path for the database dump
+        host: Database host (auto-detected from compose file if None)
+        port: Database port (auto-detected from compose file if None)
+        db: Database name (auto-detected from compose file if None)
+        user: Database user (auto-detected from compose file if None)
+        password: Database password (auto-detected from compose file if None)
+        verbose: Show psql output
+
+    Returns:
+        True if successful, False if errors occurred
+
+    Raises:
+        ConfigurationError: If psql is not found or configuration is invalid
+        DatabaseError: If restore operation fails
+    """
+    config = get_db_config()
+    host = host if host is not None else config["host"]
+    port = port if port is not None else int(config["port"])
+    db = db if db is not None else config["database"]
+    user = user if user is not None else config["user"]
+    password = password if password is not None else config["password"]
+
+    input_path = Path(input_file)
+    if not input_path.exists():
+        raise DatabaseError(f"Dump file not found: {input_file}")
+
+    logger.info(f"Restoring database dump: {user}@{host}:{port}/{db}")
+    logger.info(f"Input file: {input_file}")
+
+    # Build psql command
+    cmd = [
+        "psql",
+        f"--host={host}",
+        f"--port={port}",
+        f"--username={user}",
+        f"--dbname={db}",
+        "--no-password",  # Use PGPASSWORD env var instead
+        "--file",
+        str(input_path),
+    ]
+
+    if not verbose:
+        cmd.append("--quiet")
+
+    env = os.environ.copy()
+    if password:
+        env["PGPASSWORD"] = password
+
+    try:
+        logger.info("Restoring database from dump...")
+
+        # Run psql
+        subprocess.run(
+            cmd,
+            env=env,
+            capture_output=not verbose,
+            text=True,
+            check=True,
+        )
+
+        logger.info(f"Database restored successfully from: {input_file}")
+        return True
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"psql failed with exit code {e.returncode}")
+        if e.stderr:
+            logger.error(f"Error: {e.stderr}")
+        raise DatabaseError(
+            f"Database restore failed with exit code {e.returncode}"
+        ) from e
+    except FileNotFoundError as e:
+        raise ConfigurationError(
+            "psql command not found. Please install PostgreSQL client tools."
+        ) from e
+
+
 async def generate_manifest(
     output_file: str = "manifest.txt",
     host: Optional[str] = None,

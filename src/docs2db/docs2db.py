@@ -13,6 +13,7 @@ from docs2db.database import (
     dump_database,
     generate_manifest,
     load_documents,
+    restore_database,
 )
 from docs2db.embed import generate_embeddings
 from docs2db.exceptions import Docs2DBException
@@ -227,6 +228,50 @@ def db_dump(
     try:
         if not dump_database(
             output_file=output_file,
+            host=host,
+            port=port,
+            db=db,
+            user=user,
+            password=password,
+            verbose=verbose,
+        ):
+            raise typer.Exit(1)
+    except Docs2DBException as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+
+@app.command(name="db-restore")
+def db_restore(
+    input_file: Annotated[
+        str, typer.Argument(help="Input file path for the database dump")
+    ],
+    host: Annotated[
+        Optional[str],
+        typer.Option(help="Database host (auto-detected from compose file)"),
+    ] = None,
+    port: Annotated[
+        Optional[int],
+        typer.Option(help="Database port (auto-detected from compose file)"),
+    ] = None,
+    db: Annotated[
+        Optional[str],
+        typer.Option(help="Database name (auto-detected from compose file)"),
+    ] = None,
+    user: Annotated[
+        Optional[str],
+        typer.Option(help="Database user (auto-detected from compose file)"),
+    ] = None,
+    password: Annotated[
+        Optional[str],
+        typer.Option(help="Database password (auto-detected from compose file)"),
+    ] = None,
+    verbose: Annotated[bool, typer.Option(help="Show psql output")] = False,
+) -> None:
+    """Restore a PostgreSQL database from a dump file."""
+    try:
+        if not restore_database(
+            input_file=input_file,
             host=host,
             port=port,
             db=db,
