@@ -7,6 +7,7 @@ Docs2DB builds a RAG database from a directory of content files. It:
 - Stores source data in working folders in Docling format.
 - Processes data into chunks and embeddings (Granite, others are possible)
 - Loads data in a PostgresDB and produces pg_dump files (Milvus is possible)
+- Serve data with https://github.com/rhel-lightspeed/docs2db-api
 
 ## Quickstart
 
@@ -72,6 +73,10 @@ Docs2DB uses PostgreSQL with the pgvector extension for storing documents, chunk
 
 - `make db-dump` (or `uv run docs2db db-dump`)
     - make `ragdb_dump.sql` from the current Postgresql database
+
+## Serving
+
+Use a Docs2DB database for RAG in your LLM application with https://github.com/rhel-lightspeed/docs2db-api
 
 ## Testing
 
