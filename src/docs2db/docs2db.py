@@ -134,6 +134,18 @@ def load(
     batch_size: Annotated[
         int, typer.Option(help="Files per batch for each worker process")
     ] = 100,
+    username: Annotated[
+        str, typer.Option(help="Username to record in change log")
+    ] = "",
+    title: Annotated[
+        Optional[str], typer.Option(help="Database title for metadata")
+    ] = None,
+    description: Annotated[
+        Optional[str], typer.Option(help="Database description for metadata")
+    ] = None,
+    note: Annotated[
+        Optional[str], typer.Option(help="Note about this load operation")
+    ] = None,
 ) -> None:
     """Load documents, chunks, and embeddings into PostgreSQL database with pgvector."""
 
@@ -150,6 +162,10 @@ def load(
                 password=password,
                 force=force,
                 batch_size=batch_size,
+                username=username,
+                title=title,
+                description=description,
+                note=note,
             )
         ):
             raise typer.Exit(1)

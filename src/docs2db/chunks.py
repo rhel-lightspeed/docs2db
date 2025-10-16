@@ -19,7 +19,7 @@ from transformers.utils import logging as transformers_logging
 from docs2db.const import (
     CHUNKING_CONFIG,
     CHUNKING_SCHEMA_VERSION,
-    DOCS2DB_VERSION,
+    DATABASE_SCHEMA_VERSION,
 )
 from docs2db.multiproc import BatchProcessor, setup_worker_logging
 from docs2db.utils import ensure_model_available, hash_file
@@ -140,7 +140,7 @@ def generate_chunks_for_document(
         "metadata": {
             "source_file": str(source_file.relative_to(content_dir)),
             "source_hash": hash_file(source_file),
-            "docs2db_version": DOCS2DB_VERSION,
+            "database_schema_version": DATABASE_SCHEMA_VERSION,
             "chunking_schema_version": CHUNKING_SCHEMA_VERSION,
             "processing": {
                 "chunker": CHUNKING_CONFIG["chunker_class"],

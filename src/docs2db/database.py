@@ -17,6 +17,7 @@ import structlog
 import yaml
 from psycopg.sql import SQL, Identifier
 
+from docs2db.const import DATABASE_SCHEMA_VERSION
 from docs2db.embeddings import EMBEDDING_CONFIGS, create_embedding_filename
 from docs2db.exceptions import ConfigurationError, ContentError, DatabaseError
 from docs2db.multiproc import BatchProcessor, setup_worker_logging
@@ -72,6 +73,160 @@ class DatabaseManager:
         connection_string = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
         return await psycopg.AsyncConnection.connect(connection_string)
 
+    async def insert_schema_metadata(
+        self,
+        conn,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> None:
+        """Insert initial schema metadata record."""
+        await conn.execute(
+            """
+            INSERT INTO schema_metadata (
+                title, description,
+                schema_version, embedding_models_count
+            ) VALUES (%s, %s, %s, 0)
+            """,
+            [title, description, DATABASE_SCHEMA_VERSION],
+        )
+
+    async def update_schema_metadata(
+        self,
+        conn,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        embedding_models_count: Optional[int] = None,
+    ) -> None:
+        """Update schema metadata record."""
+        updates = []
+        params = []
+
+        if title is not None:
+            updates.append("title = %s")
+            params.append(title)
+        if description is not None:
+            updates.append("description = %s")
+            params.append(description)
+        if embedding_models_count is not None:
+            updates.append("embedding_models_count = %s")
+            params.append(embedding_models_count)
+
+        if updates:
+            updates.append("last_modified_at = NOW()")
+            sql = f"UPDATE schema_metadata SET {', '.join(updates)} WHERE id = 1"
+            await conn.execute(sql, params)
+
+    def format_schema_change_display(self, change_data: dict) -> str:
+        """Format a schema change record for display.
+
+        Only includes fields that have meaningful values.
+        """
+        lines = []
+
+        # Header with ID
+        lines.append(f"\nUpdate #{change_data['id']}:")
+
+        # Timestamp (always show)
+        timestamp = (
+            change_data["changed_at"].strftime("%Y-%m-%d %H:%M")
+            if change_data["changed_at"]
+            else "Unknown"
+        )
+        lines.append(f"  Timestamp      : {timestamp}")
+
+        # User (only if set)
+        if change_data["changed_by_user"]:
+            lines.append(f"  User           : {change_data['changed_by_user']}")
+
+        # Version (only if set)
+        if change_data["changed_by_version"]:
+            lines.append(f"  Version        : {change_data['changed_by_version']}")
+
+        # Tool (only if set)
+        if change_data["changed_by_tool"]:
+            lines.append(f"  Tool           : {change_data['changed_by_tool']}")
+
+        # Documents (only if added or deleted)
+        if change_data["documents_added"] > 0:
+            lines.append(f"  Documents added: {change_data['documents_added']}")
+        if change_data["documents_deleted"] > 0:
+            lines.append(f"  Documents deleted: {change_data['documents_deleted']}")
+
+        # Chunks (only if added or deleted)
+        if change_data["chunks_added"] > 0:
+            lines.append(f"  Chunks added   : {change_data['chunks_added']}")
+        if change_data["chunks_deleted"] > 0:
+            lines.append(f"  Chunks deleted : {change_data['chunks_deleted']}")
+
+        # Embeddings (only if added or deleted)
+        if change_data["embeddings_added"] > 0:
+            lines.append(f"  Embeds added   : {change_data['embeddings_added']}")
+        if change_data["embeddings_deleted"] > 0:
+            lines.append(f"  Embeds deleted : {change_data['embeddings_deleted']}")
+
+        # Models added (only if any)
+        if change_data["embedding_models_added"]:
+            models_str = ", ".join(change_data["embedding_models_added"])
+            lines.append(f"  Models added   : {models_str}")
+
+        # Notes (only if set)
+        if change_data["notes"]:
+            lines.append(f"  Notes          : {change_data['notes']}")
+
+        return "\n".join(lines)
+
+    async def insert_schema_change(
+        self,
+        conn,
+        changed_by_user: str = "",
+        documents_added: int = 0,
+        documents_deleted: int = 0,
+        chunks_added: int = 0,
+        chunks_deleted: int = 0,
+        embeddings_added: int = 0,
+        embeddings_deleted: int = 0,
+        embedding_models_added: Optional[List[str]] = None,
+        notes: str = "",
+    ) -> None:
+        """Insert a schema change record."""
+        if embedding_models_added is None:
+            embedding_models_added = []
+
+        await conn.execute(
+            """
+            INSERT INTO schema_changes (
+                changed_by_tool, changed_by_version, changed_by_user,
+                documents_added, documents_deleted,
+                chunks_added, chunks_deleted,
+                embeddings_added, embeddings_deleted,
+                embedding_models_added,
+                schema_version,
+                notes
+            ) VALUES (
+                'docs2db', %s, %s,
+                %s, %s,
+                %s, %s,
+                %s, %s,
+                %s,
+                %s,
+                %s
+            )
+            """,
+            [
+                DATABASE_SCHEMA_VERSION,
+                changed_by_user,
+                documents_added,
+                documents_deleted,
+                chunks_added,
+                chunks_deleted,
+                embeddings_added,
+                embeddings_deleted,
+                embedding_models_added,
+                DATABASE_SCHEMA_VERSION,
+                notes,
+            ],
+        )
+
     async def initialize_schema(self) -> None:
         """Initialize database schema with tables for documents, chunks, and embeddings."""
         # Check if schema already exists and create it if needed
@@ -80,10 +235,10 @@ class DatabaseManager:
                 SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
-                AND table_name IN ('documents', 'chunks', 'embeddings')
+                AND table_name IN ('documents', 'chunks', 'embeddings', 'schema_metadata', 'schema_changes')
             """)
             existing_tables = [row[0] for row in await tables_result.fetchall()]
-            schema_exists = len(existing_tables) == 3
+            schema_exists = len(existing_tables) == 5
 
             schema_sql = """
         -- Enable pgvector extension
@@ -124,6 +279,34 @@ class DatabaseManager:
             UNIQUE(chunk_id, model_name)
         );
 
+        -- Schema metadata: singleton table tracking current database state
+        CREATE TABLE IF NOT EXISTS schema_metadata (
+            id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+            title TEXT,
+            description TEXT,
+            schema_version TEXT NOT NULL,
+            embedding_models_count INT NOT NULL DEFAULT 0,
+            last_modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
+        -- Schema changes: audit log of all changes (id=1 is creation event)
+        CREATE TABLE IF NOT EXISTS schema_changes (
+            id SERIAL PRIMARY KEY,
+            changed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            changed_by_tool TEXT NOT NULL,
+            changed_by_version TEXT,
+            changed_by_user TEXT,
+            documents_added INT DEFAULT 0,
+            documents_deleted INT DEFAULT 0,
+            chunks_added INT DEFAULT 0,
+            chunks_deleted INT DEFAULT 0,
+            embeddings_added INT DEFAULT 0,
+            embeddings_deleted INT DEFAULT 0,
+            embedding_models_added TEXT[],
+            schema_version TEXT NOT NULL,
+            notes TEXT
+        );
+
         -- Indexes for better performance
         CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path);
         CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
@@ -159,6 +342,15 @@ class DatabaseManager:
             await conn.commit()
 
             if not schema_exists:
+                # Insert initial schema metadata
+                await self.insert_schema_metadata(conn)
+
+                # Insert initial change record (creation event)
+                await self.insert_schema_change(
+                    conn, changed_by_user="", notes="Database initialized"
+                )
+
+                await conn.commit()
                 logger.info("Database schema initialized successfully")
 
     async def load_document_batch(
@@ -699,10 +891,71 @@ async def check_database_status(
         for model_name, model_info in stats["embedding_models"].items():
             logger.info(
                 "\nEmbedding model details:\n"
-                f"model     : {model_name}\n"
-                f"embeddings: {model_info['count']}\n"
-                f"dimensions: {model_info['dimensions']}"
+                f"  model     : {model_name}\n"
+                f"  embeddings: {model_info['count']}\n"
+                f"  dimensions: {model_info['dimensions']}"
             )
+
+    # Display schema metadata if available
+    async with await db_manager.get_direct_connection() as conn:
+        try:
+            metadata_result = await conn.execute(
+                "SELECT * FROM schema_metadata WHERE id = 1"
+            )
+            metadata_row = await metadata_result.fetchone()
+            if metadata_row and metadata_result.description:
+                columns = [desc[0] for desc in metadata_result.description]
+                metadata = dict(zip(columns, metadata_row))
+
+                logger.info(
+                    "\nSchema Metadata:\n"
+                    f"  Version        : {metadata['schema_version']}\n"
+                    f"  Title          : {metadata['title'] or '(not set)'}\n"
+                    f"  Description    : {metadata['description'] or '(not set)'}\n"
+                    f"  Models         : {metadata['embedding_models_count']}\n"
+                    f"  Last modified  : {metadata['last_modified_at'].strftime('%Y-%m-%d %H:%M') if metadata['last_modified_at'] else 'Unknown'}"
+                )
+        except Exception:
+            # Schema metadata table doesn't exist yet
+            pass
+
+    # Display recent schema changes (last 5)
+    async with await db_manager.get_direct_connection() as conn:
+        try:
+            changes_result = await conn.execute("""
+                SELECT
+                    id,
+                    changed_at,
+                    changed_by_tool,
+                    changed_by_version,
+                    changed_by_user,
+                    documents_added,
+                    documents_deleted,
+                    chunks_added,
+                    chunks_deleted,
+                    embeddings_added,
+                    embeddings_deleted,
+                    embedding_models_added,
+                    notes
+                FROM schema_changes
+                ORDER BY id DESC
+                LIMIT 5
+            """)
+
+            changes = []
+            async for row in changes_result:
+                if changes_result.description:
+                    columns = [desc[0] for desc in changes_result.description]
+                    change_data = dict(zip(columns, row))
+                    changes.append(change_data)
+
+            if changes:
+                logger.info("\nRecent Changes (last 5):")
+                for change_data in changes:
+                    logger.info(db_manager.format_schema_change_display(change_data))
+        except Exception:
+            # Schema changes table doesn't exist yet
+            pass
 
     if stats["documents"] > 0:
         # Get recent activity
@@ -952,6 +1205,10 @@ async def load_documents(
     password: Optional[str],
     force: bool = False,
     batch_size: int = 100,
+    username: str = "",
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    note: Optional[str] = None,
 ) -> bool:
     """Load documents and embeddings in the PostgreSQL database.
 
@@ -1013,6 +1270,42 @@ async def load_documents(
 
     await db_manager.initialize_schema()
 
+    # Handle schema_metadata (insert or update)
+    async with await db_manager.get_direct_connection() as conn:
+        # Check if metadata exists and if it's been configured
+        result = await conn.execute("SELECT title FROM schema_metadata WHERE id = 1")
+        row = await result.fetchone()
+        metadata_exists = row is not None
+        metadata_configured = (
+            metadata_exists and row[0] is not None
+        )  # Has title been set?
+
+        if metadata_configured:
+            # Update existing, configured metadata
+            await db_manager.update_schema_metadata(
+                conn,
+                title=title,
+                description=description,
+            )
+        else:
+            # First configuration - set title and description
+            # (metadata record may exist from initialize_schema, but hasn't been configured yet)
+            if metadata_exists:
+                # Update the initialized-but-not-configured record
+                await db_manager.update_schema_metadata(
+                    conn,
+                    title=title,
+                    description=description,
+                )
+            else:
+                # Insert new metadata (shouldn't happen after initialize_schema)
+                await db_manager.insert_schema_metadata(
+                    conn,
+                    title=title,
+                    description=description,
+                )
+        await conn.commit()
+
     content_path = Path(content_dir)
     if not content_path.exists():
         logger.error(f"Content directory does not exist: {content_dir}")
@@ -1025,6 +1318,27 @@ async def load_documents(
         return True
 
     logger.info(f"Found {count} embedding files for model: {model_name}")
+
+    # Count records BEFORE the operation starts
+    async with await db_manager.get_direct_connection() as conn:
+        result = await conn.execute("SELECT COUNT(*) FROM documents")
+        row = await result.fetchone()
+        documents_before = row[0] if row else 0
+
+        result = await conn.execute("SELECT COUNT(*) FROM chunks")
+        row = await result.fetchone()
+        chunks_before = row[0] if row else 0
+
+        result = await conn.execute("SELECT COUNT(*) FROM embeddings")
+        row = await result.fetchone()
+        embeddings_before = row[0] if row else 0
+
+        # Check if this model already exists
+        result = await conn.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE model_name = %s", [model_name]
+        )
+        row = await result.fetchone()
+        model_existed_before = (row[0] if row else 0) > 0
 
     processor = BatchProcessor(
         worker_function=load_batch_worker,
@@ -1047,6 +1361,63 @@ async def load_documents(
     source_files_iter = (source_file for source_file, _ in file_pairs_iter)
     loaded, errors = processor.process_files(source_files_iter, count)
     end = time.time()
+
+    # Record this load operation in schema_changes
+    if loaded > 0:
+        async with await db_manager.get_direct_connection() as conn:
+            # Get current embedding model count
+            result = await conn.execute(
+                "SELECT COUNT(DISTINCT model_name) FROM embeddings"
+            )
+            row = await result.fetchone()
+            model_count = row[0] if row else 0
+
+            # Update embedding_models_count in metadata
+            await db_manager.update_schema_metadata(
+                conn,
+                embedding_models_count=model_count,
+            )
+
+            # Build note for this operation
+            operation_note = (
+                note if note else f"Loaded {loaded} files with model {model_name}"
+            )
+            if errors > 0:
+                operation_note += f" ({errors} errors)"
+
+            # Count records AFTER the operation and calculate the diff
+            result = await conn.execute("SELECT COUNT(*) FROM documents")
+            row = await result.fetchone()
+            documents_after = row[0] if row else 0
+            documents_added_count = documents_after - documents_before
+
+            result = await conn.execute("SELECT COUNT(*) FROM chunks")
+            row = await result.fetchone()
+            chunks_after = row[0] if row else 0
+            chunks_added_count = chunks_after - chunks_before
+
+            result = await conn.execute("SELECT COUNT(*) FROM embeddings")
+            row = await result.fetchone()
+            embeddings_after = row[0] if row else 0
+            embeddings_added_count = embeddings_after - embeddings_before
+
+            # Check if this model is new (didn't exist before, exists now)
+            embedding_models_added = []
+            if not model_existed_before and embeddings_added_count > 0:
+                embedding_models_added = [model_name]
+
+            # Insert change record with all statistics
+            await db_manager.insert_schema_change(
+                conn,
+                changed_by_user=username,
+                documents_added=documents_added_count,
+                chunks_added=chunks_added_count,
+                embeddings_added=embeddings_added_count,
+                embedding_models_added=embedding_models_added,
+                notes=operation_note,
+            )
+
+            await conn.commit()
 
     if errors > 0:
         logger.error(f"Load completed with {errors} errors")

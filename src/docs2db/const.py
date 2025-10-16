@@ -1,4 +1,4 @@
-DOCS2DB_VERSION = "1.0.0"  # Increment when chunking/embedding logic changes
+DATABASE_SCHEMA_VERSION = "1.0.0"  # Codex database schema version
 CHUNKING_SCHEMA_VERSION = "1.0"  # Increment when chunking metadata schema changes
 EMBEDDING_SCHEMA_VERSION = "1.0"  # Increment when embedding metadata schema changes
 
