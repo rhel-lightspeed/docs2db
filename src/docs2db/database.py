@@ -175,6 +175,63 @@ class DatabaseManager:
 
         return "\n".join(lines)
 
+    async def insert_model(
+        self,
+        conn,
+        name: str,
+        dimensions: int,
+        provider: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> int:
+        """Insert a new model and return its ID.
+
+        Returns the model ID if inserted, or existing ID if already exists.
+        Raises DatabaseError if insertion fails.
+        """
+        # Check if model already exists
+        result = await conn.execute("SELECT id FROM models WHERE name = %s", [name])
+        row = await result.fetchone()
+        if row:
+            return row[0]
+
+        # Insert new model
+        result = await conn.execute(
+            """
+            INSERT INTO models (name, dimensions, provider, description)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+            """,
+            [name, dimensions, provider, description],
+        )
+        row = await result.fetchone()
+        if row is None:
+            raise DatabaseError(f"Failed to insert model: {name}")
+        return row[0]
+
+    async def get_model_id(self, conn, name: str) -> Optional[int]:
+        """Get model ID by name."""
+        result = await conn.execute("SELECT id FROM models WHERE name = %s", [name])
+        row = await result.fetchone()
+        return row[0] if row else None
+
+    async def get_model_info(self, conn, model_id: int) -> Optional[dict]:
+        """Get model information by ID."""
+        result = await conn.execute(
+            "SELECT id, name, dimensions, provider, description, created_at FROM models WHERE id = %s",
+            [model_id],
+        )
+        row = await result.fetchone()
+        if row:
+            return {
+                "id": row[0],
+                "name": row[1],
+                "dimensions": row[2],
+                "provider": row[3],
+                "description": row[4],
+                "created_at": row[5],
+            }
+        return None
+
     async def insert_schema_change(
         self,
         conn,
@@ -268,15 +325,24 @@ class DatabaseManager:
             UNIQUE(document_id, chunk_index)
         );
 
+        -- Models table: stores embedding model metadata
+        CREATE TABLE IF NOT EXISTS models (
+            id SERIAL PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            dimensions INTEGER NOT NULL,
+            provider TEXT,
+            description TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
         -- Embeddings table: stores vector embeddings for chunks
         CREATE TABLE IF NOT EXISTS embeddings (
             id SERIAL PRIMARY KEY,
             chunk_id INTEGER REFERENCES chunks(id) ON DELETE CASCADE,
-            model_name TEXT NOT NULL,
+            model_id INTEGER REFERENCES models(id) ON DELETE CASCADE,
             embedding VECTOR, -- Dynamic dimension based on model
-            dimensions INTEGER NOT NULL,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-            UNIQUE(chunk_id, model_name)
+            UNIQUE(chunk_id, model_id)
         );
 
         -- Schema metadata: singleton table tracking current database state
@@ -311,7 +377,8 @@ class DatabaseManager:
         CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path);
         CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
         CREATE INDEX IF NOT EXISTS idx_embeddings_chunk_id ON embeddings(chunk_id);
-        CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model_name);
+        CREATE INDEX IF NOT EXISTS idx_embeddings_model_id ON embeddings(model_id);
+        CREATE INDEX IF NOT EXISTS idx_models_name ON models(name);
 
         -- Function to update the updated_at timestamp
         CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -362,8 +429,32 @@ class DatabaseManager:
         force: bool = False,
     ) -> Tuple[int, int]:
         """Load a batch of documents, chunks, and embeddings using bulk operations."""
+        from docs2db.embeddings import EMBEDDING_CONFIGS
+
         processed = 0
         errors = 0
+
+        # Get model info and ensure model exists in database
+        # Extract model_name from first file (all files in batch use same model)
+        if not files_data:
+            return 0, 0
+
+        model_name = files_data[0][2]  # model is 3rd element in tuple
+        model_config = EMBEDDING_CONFIGS.get(model_name, {})
+        model_full_name = model_config.get("model_id", model_name)
+        model_dimensions = model_config.get("dimensions", 0)
+        model_provider = model_config.get("provider")
+
+        # Insert model if it doesn't exist and get model_id
+        async with await self.get_direct_connection() as conn:
+            model_id = await self.insert_model(
+                conn,
+                name=model_full_name,
+                dimensions=model_dimensions,
+                provider=model_provider,
+                description=f"Embedding model: {model_name}",
+            )
+            await conn.commit()
 
         # Prepare bulk data
         documents_data = []
@@ -445,9 +536,9 @@ class DatabaseManager:
                                 FROM documents d
                                 JOIN chunks c ON c.document_id = d.id
                                 JOIN embeddings e ON e.chunk_id = c.id
-                                WHERE d.path = %s AND e.model_name = %s
+                                WHERE d.path = %s AND e.model_id = %s
                                 """,
-                                (str(source_file), model_name),
+                                (str(source_file), model_id),
                             )
                             existing_row = await existing_result.fetchone()
 
@@ -553,12 +644,10 @@ class DatabaseManager:
                         )
 
                         # Prepare embedding data
-                        dimensions = len(embedding_vector)
                         embedding_data_tuple = (
                             chunk_id,
-                            model_name,
+                            model_id,
                             embedding_vector,
-                            dimensions,
                         )
                         embeddings_data.append(embedding_data_tuple)
 
@@ -571,11 +660,10 @@ class DatabaseManager:
                     try:
                         await conn.execute(
                             """
-                            INSERT INTO embeddings (chunk_id, model_name, embedding, dimensions)
-                            VALUES (%s, %s, %s, %s)
-                            ON CONFLICT (chunk_id, model_name) DO UPDATE SET
+                            INSERT INTO embeddings (chunk_id, model_id, embedding)
+                            VALUES (%s, %s, %s)
+                            ON CONFLICT (chunk_id, model_id) DO UPDATE SET
                                 embedding = EXCLUDED.embedding,
-                                dimensions = EXCLUDED.dimensions,
                                 created_at = NOW()
                             """,
                             embedding_tuple,
@@ -624,21 +712,22 @@ class DatabaseManager:
             chunk_row = await chunk_result.fetchone()
             chunk_count = chunk_row[0] if chunk_row else 0
 
-            # Embedding stats by model
+            # Embedding stats by model (join with models table)
             embedding_stats = await conn.execute(
                 """
-                SELECT model_name, COUNT(*) as count, AVG(dimensions) as avg_dimensions
-                FROM embeddings
-                GROUP BY model_name
-                ORDER BY model_name
+                SELECT m.name, COUNT(e.id) as count, m.dimensions
+                FROM models m
+                LEFT JOIN embeddings e ON e.model_id = m.id
+                GROUP BY m.id, m.name, m.dimensions
+                ORDER BY m.name
                 """
             )
             embedding_models = {}
             async for row in embedding_stats:
-                model_name, count, avg_dims = row
+                model_name, count, dimensions = row
                 embedding_models[model_name] = {
                     "count": count,
-                    "dimensions": int(avg_dims) if avg_dims else 0,
+                    "dimensions": dimensions if dimensions else 0,
                 }
 
             return {
@@ -690,7 +779,21 @@ class DatabaseManager:
         similarity_threshold: float = 0.7,
     ) -> List[Dict[str, Any]]:
         """Search for similar chunks using vector similarity."""
+        from docs2db.embeddings import EMBEDDING_CONFIGS
+
         async with await self.get_direct_connection() as conn:
+            # Convert short model name to full model name if needed
+            model_config = EMBEDDING_CONFIGS.get(model_name, {})
+            model_full_name = model_config.get("model_id", model_name)
+
+            # Get model_id from full model name
+            model_id = await self.get_model_id(conn, model_full_name)
+            if model_id is None:
+                logger.warning(
+                    f"Model '{model_name}' ({model_full_name}) not found in database"
+                )
+                return []
+
             results = await conn.execute(
                 """
                 SELECT
@@ -703,7 +806,7 @@ class DatabaseManager:
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.id
                 JOIN embeddings e ON c.id = e.chunk_id
-                WHERE e.model_name = %s
+                WHERE e.model_id = %s
                     AND 1 - (e.embedding <=> %s::vector) >= %s
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT %s
@@ -711,7 +814,7 @@ class DatabaseManager:
                 (
                     query_embedding,
                     query_embedding,
-                    model_name,
+                    model_id,
                     query_embedding,
                     similarity_threshold,
                     query_embedding,
@@ -892,8 +995,8 @@ async def check_database_status(
             logger.info(
                 "\nEmbedding model details:\n"
                 f"  model     : {model_name}\n"
-                f"  embeddings: {model_info['count']}\n"
-                f"  dimensions: {model_info['dimensions']}"
+                f"  dimensions: {model_info['dimensions']}\n"
+                f"  embeddings: {model_info['count']}"
             )
 
     # Display schema metadata if available
@@ -1234,6 +1337,8 @@ async def load_documents(
     """
     start = time.time()
 
+    from docs2db.embeddings import EMBEDDING_CONFIGS
+
     config = get_db_config()
     host = host if host is not None else config["host"]
     port = port if port is not None else int(config["port"])
@@ -1319,6 +1424,10 @@ async def load_documents(
 
     logger.info(f"Found {count} embedding files for model: {model_name}")
 
+    # Get model full name from config (EMBEDDING_CONFIGS imported at top of function)
+    model_config = EMBEDDING_CONFIGS.get(model_name, {})
+    model_full_name = model_config.get("model_id", model_name)
+
     # Count records BEFORE the operation starts
     async with await db_manager.get_direct_connection() as conn:
         result = await conn.execute("SELECT COUNT(*) FROM documents")
@@ -1333,9 +1442,9 @@ async def load_documents(
         row = await result.fetchone()
         embeddings_before = row[0] if row else 0
 
-        # Check if this model already exists
+        # Check if this model already exists in models table
         result = await conn.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE model_name = %s", [model_name]
+            "SELECT COUNT(*) FROM models WHERE name = %s", [model_full_name]
         )
         row = await result.fetchone()
         model_existed_before = (row[0] if row else 0) > 0
@@ -1365,10 +1474,8 @@ async def load_documents(
     # Record this load operation in schema_changes
     if loaded > 0:
         async with await db_manager.get_direct_connection() as conn:
-            # Get current embedding model count
-            result = await conn.execute(
-                "SELECT COUNT(DISTINCT model_name) FROM embeddings"
-            )
+            # Get current embedding model count from models table
+            result = await conn.execute("SELECT COUNT(*) FROM models")
             row = await result.fetchone()
             model_count = row[0] if row else 0
 
@@ -1404,7 +1511,7 @@ async def load_documents(
             # Check if this model is new (didn't exist before, exists now)
             embedding_models_added = []
             if not model_existed_before and embeddings_added_count > 0:
-                embedding_models_added = [model_name]
+                embedding_models_added = [model_full_name]
 
             # Insert change record with all statistics
             await db_manager.insert_schema_change(

@@ -181,9 +181,9 @@ class TestSchemaMetadata:
             # Count should be 0 initially (no embeddings loaded yet)
             assert metadata["embedding_models_count"] == 0
 
-            # Get actual count from database
+            # Get actual count from database (from models table now)
             async with conn.cursor() as cur:
-                await cur.execute("SELECT COUNT(DISTINCT model_name) FROM embeddings")
+                await cur.execute("SELECT COUNT(*) FROM models")
                 result = await cur.fetchone()
                 actual_count = result[0] if result else 0
 
