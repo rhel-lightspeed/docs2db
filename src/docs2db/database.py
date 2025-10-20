@@ -321,6 +321,7 @@ class DatabaseManager:
             chunk_index INTEGER NOT NULL,
             text TEXT NOT NULL,
             metadata JSONB,
+            text_search_vector tsvector,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
             UNIQUE(document_id, chunk_index)
         );
@@ -379,6 +380,7 @@ class DatabaseManager:
         CREATE INDEX IF NOT EXISTS idx_embeddings_chunk_id ON embeddings(chunk_id);
         CREATE INDEX IF NOT EXISTS idx_embeddings_model_id ON embeddings(model_id);
         CREATE INDEX IF NOT EXISTS idx_models_name ON models(name);
+        CREATE INDEX IF NOT EXISTS idx_chunks_text_search ON chunks USING GIN(text_search_vector);
 
         -- Function to update the updated_at timestamp
         CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -623,14 +625,16 @@ class DatabaseManager:
                     try:
                         chunk_result = await conn.execute(
                             """
-                            INSERT INTO chunks (document_id, chunk_index, text, metadata)
-                            VALUES (%s, %s, %s, %s)
+                            INSERT INTO chunks (document_id, chunk_index, text, metadata, text_search_vector)
+                            VALUES (%s, %s, %s, %s, to_tsvector('english', %s))
                             ON CONFLICT (document_id, chunk_index) DO UPDATE SET
                                 text = EXCLUDED.text,
-                                metadata = EXCLUDED.metadata
+                                metadata = EXCLUDED.metadata,
+                                text_search_vector = to_tsvector('english', EXCLUDED.text)
                             RETURNING id
                             """,
-                            chunk_data,
+                            chunk_data
+                            + (chunk_data[2],),  # Add text again for tsvector
                         )
                         chunk_row = await chunk_result.fetchone()
                         if chunk_row is None:
@@ -770,81 +774,6 @@ class DatabaseManager:
                 output_file=output_file,
             )
             return True
-
-    async def search_similar(
-        self,
-        query_embedding: List[float],
-        model_name: str,
-        limit: int = 10,
-        similarity_threshold: float = 0.7,
-    ) -> List[Dict[str, Any]]:
-        """Search for similar chunks using vector similarity."""
-        from docs2db.embeddings import EMBEDDING_CONFIGS
-
-        async with await self.get_direct_connection() as conn:
-            # Convert short model name to full model name if needed
-            model_config = EMBEDDING_CONFIGS.get(model_name, {})
-            model_full_name = model_config.get("model_id", model_name)
-
-            # Get model_id from full model name
-            model_id = await self.get_model_id(conn, model_full_name)
-            if model_id is None:
-                logger.warning(
-                    f"Model '{model_name}' ({model_full_name}) not found in database"
-                )
-                return []
-
-            results = await conn.execute(
-                """
-                SELECT
-                    c.text,
-                    c.metadata,
-                    d.path,
-                    d.filename,
-                    e.embedding <=> %s::vector as distance,
-                    1 - (e.embedding <=> %s::vector) as similarity
-                FROM chunks c
-                JOIN documents d ON c.document_id = d.id
-                JOIN embeddings e ON c.id = e.chunk_id
-                WHERE e.model_id = %s
-                    AND 1 - (e.embedding <=> %s::vector) >= %s
-                ORDER BY e.embedding <=> %s::vector
-                LIMIT %s
-                """,
-                (
-                    query_embedding,
-                    query_embedding,
-                    model_id,
-                    query_embedding,
-                    similarity_threshold,
-                    query_embedding,
-                    limit,
-                ),
-            )
-
-            similar_chunks = []
-            async for row in results:
-                text, metadata_json, doc_path, filename, distance, similarity = row
-
-                # Handle metadata - it might be a dict already or a JSON string
-                if metadata_json:
-                    if isinstance(metadata_json, str):
-                        metadata = json.loads(metadata_json)
-                    else:
-                        metadata = metadata_json
-                else:
-                    metadata = {}
-
-                similar_chunks.append({
-                    "text": text,
-                    "metadata": metadata,
-                    "document_path": doc_path,
-                    "document_filename": filename,
-                    "distance": float(distance),
-                    "similarity": float(similarity),
-                })
-
-            return similar_chunks
 
 
 async def check_database_status(
