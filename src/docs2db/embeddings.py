@@ -162,7 +162,8 @@ class Embedding:
             with open(chunks_file) as f:
                 data = json.load(f)
 
-            chunks = [chunk["text"] for chunk in data["chunks"]]
+            # Use contextual_text for embeddings
+            chunks = [chunk["contextual_text"] for chunk in data["chunks"]]
             metadata = data.get("metadata", {})
 
             return chunks, metadata

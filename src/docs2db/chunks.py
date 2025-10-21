@@ -8,6 +8,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any, Iterator
 
+import httpx
 import psutil
 import structlog
 from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
@@ -109,6 +110,49 @@ def get_tokenizer():
     )
 
 
+def call_llm(prompt: str, model: str = "qwen2.5:7b-instruct") -> str:
+    """Call LLM using OpenAI-compatible API for context generation."""
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(
+                "http://localhost:11434/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "temperature": 0.3,
+                    "max_tokens": 200,
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.warning(f"LLM call failed: {e}, using minimal context")
+        return ""
+
+
+def generate_chunk_context(doc_text: str, chunk_text: str) -> str:
+    """Generate chunk-specific context using LLM following Anthropic's approach.
+
+    This follows the contextual retrieval method from:
+    https://www.anthropic.com/engineering/contextual-retrieval
+    """
+    prompt = f"""<document>
+{doc_text}
+</document>
+
+Here is the chunk we want to situate within the whole document:
+<chunk>
+{chunk_text}
+</chunk>
+
+Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else."""
+
+    context = call_llm(prompt)
+    return context if context else ""
+
+
 def generate_chunks_for_document(
     source_str: str, content_dir: Path, force: bool
 ) -> Path:
@@ -124,13 +168,31 @@ def generate_chunks_for_document(
         json_data=source_file.read_text().encode("utf-8")
     )
 
+    # Extract full document text for contextual generation
+    doc_text = dl_doc.export_to_markdown()
+
     chunker = HybridChunker(tokenizer=get_tokenizer(), merge_peers=True)
     chunks_data = []
-    for chunk in chunker.chunk(dl_doc=dl_doc):
-        enriched_text = chunker.contextualize(chunk=chunk)
-        chunk.text = enriched_text.replace("\xa0", " ")
 
-        chunk_data = {"text": chunk.text, "metadata": chunk.meta.model_dump()}
+    for chunk in chunker.chunk(dl_doc=dl_doc):
+        # Get enriched text from docling's contextualization (adds heading context)
+        enriched_text = chunker.contextualize(chunk=chunk)
+        original_text = enriched_text.replace("\xa0", " ")
+
+        # Generate chunk-specific context using LLM (Anthropic's contextual retrieval approach)
+        chunk_context = generate_chunk_context(doc_text, original_text)
+
+        # Build contextual text: prepend context to original text
+        # If LLM fails to generate context, just use the original text
+        contextual_text = (
+            f"{chunk_context}\n\n{original_text}" if chunk_context else original_text
+        )
+
+        chunk_data = {
+            "text": original_text,  # Original chunk text
+            "contextual_text": contextual_text,  # Context-enhanced text for embeddings and BM25
+            "metadata": chunk.meta.model_dump(),
+        }
         chunks_data.append(chunk_data)
 
     if not chunks_data:

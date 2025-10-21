@@ -85,3 +85,20 @@ Try out your RAG database with the demo client
 - `uv run python scripts/rag_demo_client.py --interactive`
 
 Automated testing requires its own postgres database, start one with `make db-up-test` and run tests with `make test` (or `uv run docs2db test`)
+
+## RAG Algorithm
+
+Docs2DB implements modern retrieval techniques:
+
+- Contextual chunks with LLM-generated context situating each chunk within its document (following [Anthropic's Contextual Retrieval](https://www.anthropic.com/engineering/contextual-retrieval))
+- Hybrid search combining BM25 (lexical) and vector embeddings (semantic)
+- Reciprocal Rank Fusion (RRF) for result combination
+- PostgreSQL full-text search with tsvector and GIN indexing
+- pgvector for similarity search
+- Granite embedding models (30M parameters, 384 dimensions)
+- Normalized model metadata storage
+- Schema versioning and change tracking
+
+## Advice
+
+- Save your working directory (/content) and re-use it when updating because chunking and embedding take a long time. They will only chunk and embed files that have changed since their current chunks and embeddings were generated.

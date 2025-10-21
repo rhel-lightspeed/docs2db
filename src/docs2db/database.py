@@ -320,6 +320,7 @@ class DatabaseManager:
             document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
             chunk_index INTEGER NOT NULL,
             text TEXT NOT NULL,
+            contextual_text TEXT,
             metadata JSONB,
             text_search_vector tsvector,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -595,7 +596,8 @@ class DatabaseManager:
                             chunk_data = (
                                 document_id,
                                 chunk_idx,
-                                chunk.get("text", ""),
+                                chunk["text"],
+                                chunk["contextual_text"],
                                 json.dumps(chunk.get("metadata", {})),
                             )
                             chunks_data.append((
@@ -625,16 +627,17 @@ class DatabaseManager:
                     try:
                         chunk_result = await conn.execute(
                             """
-                            INSERT INTO chunks (document_id, chunk_index, text, metadata, text_search_vector)
-                            VALUES (%s, %s, %s, %s, to_tsvector('english', %s))
+                            INSERT INTO chunks (document_id, chunk_index, text, contextual_text, metadata, text_search_vector)
+                            VALUES (%s, %s, %s, %s, %s, to_tsvector('english', %s))
                             ON CONFLICT (document_id, chunk_index) DO UPDATE SET
                                 text = EXCLUDED.text,
+                                contextual_text = EXCLUDED.contextual_text,
                                 metadata = EXCLUDED.metadata,
-                                text_search_vector = to_tsvector('english', EXCLUDED.text)
+                                text_search_vector = to_tsvector('english', EXCLUDED.contextual_text)
                             RETURNING id
                             """,
                             chunk_data
-                            + (chunk_data[2],),  # Add text again for tsvector
+                            + (chunk_data[3],),  # Add contextual_text for tsvector
                         )
                         chunk_row = await chunk_result.fetchone()
                         if chunk_row is None:
