@@ -141,7 +141,9 @@ class TestHighLevelIntegrationSQL:
         # Store the initial file set for later comparisons
         expected_json_files = initial_files.copy()
 
-        success = generate_chunks(str(content_dir), "**/*.json", force=False)
+        success = generate_chunks(
+            str(content_dir), "**/*.json", force=False, skip_context=True
+        )
         assert success, "Initial chunking should succeed"
 
         # Verify chunk files were created correctly
@@ -286,7 +288,9 @@ class TestHighLevelIntegrationSQL:
         embed_mtimes_before = self.get_file_mtimes(content_dir, "*.gran.json")
 
         # Test chunking idempotency
-        success = generate_chunks(str(content_dir), "**/*.json", force=False)
+        success = generate_chunks(
+            str(content_dir), "**/*.json", force=False, skip_context=True
+        )
         assert success, "Chunking re-run should succeed"
 
         # Verify no chunk files changed
@@ -334,7 +338,9 @@ class TestHighLevelIntegrationSQL:
         # === PHASE 3: Force Re-processing Test ===
 
         # Test force re-processing to ensure the pipeline can handle force flags
-        success = generate_chunks(str(content_dir), "**/*.json", force=True)
+        success = generate_chunks(
+            str(content_dir), "**/*.json", force=True, skip_context=True
+        )
         assert success, "Force chunking should succeed"
 
         success = generate_embeddings(

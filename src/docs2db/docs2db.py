@@ -58,10 +58,27 @@ def chunk(
     dry_run: Annotated[
         bool, typer.Option(help="Show what would process without doing it")
     ] = False,
+    skip_context: Annotated[
+        bool, typer.Option(help="Skip LLM contextual chunk generation (faster)")
+    ] = False,
+    context_model: Annotated[
+        str, typer.Option(help="LLM model for context generation")
+    ] = "qwen2.5:7b-instruct",
+    llm_base_url: Annotated[
+        str, typer.Option(help="Base URL for LLM API (OpenAI-compatible)")
+    ] = "http://localhost:11434",
 ) -> None:
     """Generate chunks for content files."""
     try:
-        if not generate_chunks(content_dir, pattern, force, dry_run):
+        if not generate_chunks(
+            content_dir,
+            pattern,
+            force,
+            dry_run,
+            skip_context=skip_context,
+            context_model=context_model,
+            llm_base_url=llm_base_url,
+        ):
             raise typer.Exit(1)
     except Docs2DBException as e:
         logger.error(str(e))

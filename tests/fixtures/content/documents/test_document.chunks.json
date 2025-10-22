@@ -2,6 +2,7 @@
     "chunks": [
         {
             "text": "This is a test document for CLI integration testing.",
+            "contextual_text": "This is a test document for CLI integration testing.",
             "metadata": {
                 "chunk_index": 0
             }

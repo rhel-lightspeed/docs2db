@@ -33,7 +33,7 @@ can ingest: `.html`, `.htm`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.md`, `.csv`
 Before a database can be made or RAG can be served, the source documents need embeddings.
 
 The `/content` directory holds Docling docs in .json format. In addition, it holds chunks and embeddings files alongside each of those doc files.
-- `uv run docs2db chunks`
+- `uv run docs2db chunk`
     - creates a .chunks.json file for each source file
 - `uv run docs2db embed`
     - creates a .gran.json granite embedding file for each of these chunks files
@@ -41,7 +41,30 @@ The `/content` directory holds Docling docs in .json format. In addition, it hol
     - reports the number of source, chunk and embedding files
     - logs warnings
 
-Use `uv run docs2db chunks --help` or `uv run docs2db embed --help` to learn more.
+### Chunking Options
+
+**Skip contextual generation (faster):**
+```bash
+uv run docs2db chunk --skip-context
+```
+
+**Use a faster model:**
+```bash
+uv run docs2db chunk --context-model qwen2.5:3b-instruct
+```
+
+**Use an external LLM provider (e.g., WatsonX, OpenAI):**
+```bash
+# WatsonX example
+export WATSONX_API_KEY="your-api-key"
+uv run docs2db chunk --llm-base-url "https://us-south.ml.cloud.ibm.com/ml/v1/text/chat" --context-model "ibm/granite-13b-chat-v2"
+
+# OpenAI example
+export OPENAI_API_KEY="your-api-key"
+uv run docs2db chunk --llm-base-url "https://api.openai.com" --context-model "gpt-4o-mini"
+```
+
+Use `uv run docs2db chunk --help` or `uv run docs2db embed --help` to learn more.
 
 ## Database
 
