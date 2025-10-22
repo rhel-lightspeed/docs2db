@@ -110,54 +110,64 @@ def get_tokenizer():
     )
 
 
-def call_llm(prompt: str, model: str = "qwen2.5:7b-instruct") -> str:
-    """Call LLM using OpenAI-compatible API for context generation."""
-    try:
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(
-                "http://localhost:11434/v1/chat/completions",
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": False,
-                    "temperature": 0.3,
-                    "max_tokens": 200,
-                },
-            )
-            response.raise_for_status()
-            result = response.json()
-            return result["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logger.warning(f"LLM call failed: {e}, using minimal context")
-        return ""
+class LLMSession:
+    """Persistent LLM session for reusing document context across chunks."""
 
+    def __init__(self, doc_text: str, model: str = "qwen2.5:7b-instruct"):
+        self.model = model
+        self.client = httpx.Client(timeout=60.0)
+        # Initialize conversation with the document
+        self.messages = [
+            {
+                "role": "system",
+                "content": "You are an expert at providing concise context for text chunks within documents.",
+            },
+            {
+                "role": "user",
+                "content": f"I will give you a document, then ask you to provide context for specific chunks from it.\n\n<document>\n{doc_text}\n</document>",
+            },
+            {
+                "role": "assistant",
+                "content": "I have read the document. Please provide the chunks you'd like me to contextualize.",
+            },
+        ]
 
-def generate_chunk_context(doc_text: str, chunk_text: str) -> str:
-    """Generate chunk-specific context using LLM following Anthropic's approach.
-
-    This follows the contextual retrieval method from:
-    https://www.anthropic.com/engineering/contextual-retrieval
-    """
-    prompt = f"""<document>
-{doc_text}
-</document>
-
-Here is the chunk we want to situate within the whole document:
+    def get_chunk_context(self, chunk_text: str) -> str:
+        """Get context for a chunk using the cached document."""
+        # Add the chunk query to conversation
+        chunk_prompt = f"""Here is a chunk from the document:
 <chunk>
 {chunk_text}
 </chunk>
 
 Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else."""
 
-    context = call_llm(prompt)
-    return context if context else ""
+        # Create messages for this request (includes conversation history)
+        request_messages = self.messages + [{"role": "user", "content": chunk_prompt}]
+
+        response = self.client.post(
+            "http://localhost:11434/v1/chat/completions",
+            json={
+                "model": self.model,
+                "messages": request_messages,
+                "stream": False,
+                "temperature": 0.3,
+                "max_tokens": 200,
+            },
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"].strip()
+
+    def close(self):
+        """Close the HTTP client."""
+        self.client.close()
 
 
 def generate_chunks_for_document(
     source_str: str, content_dir: Path, force: bool
 ) -> Path:
     """Generate chunks for a document."""
-
     source_file = Path(source_str)
     chunks_file = source_file.with_suffix(".chunks.json")
 
@@ -171,29 +181,34 @@ def generate_chunks_for_document(
     # Extract full document text for contextual generation
     doc_text = dl_doc.export_to_markdown()
 
+    # Create persistent LLM session for this document (enables KV cache reuse)
+    llm_session = LLMSession(doc_text)
+
+    # Create chunker and chunk document
     chunker = HybridChunker(tokenizer=get_tokenizer(), merge_peers=True)
     chunks_data = []
 
-    for chunk in chunker.chunk(dl_doc=dl_doc):
-        # Get enriched text from docling's contextualization (adds heading context)
-        enriched_text = chunker.contextualize(chunk=chunk)
-        original_text = enriched_text.replace("\xa0", " ")
+    try:
+        for chunk_idx, chunk in enumerate(chunker.chunk(dl_doc=dl_doc)):
+            # Get enriched text from docling's contextualization (adds heading context)
+            enriched_text = chunker.contextualize(chunk=chunk)
+            original_text = enriched_text.replace("\xa0", " ")
 
-        # Generate chunk-specific context using LLM (Anthropic's contextual retrieval approach)
-        chunk_context = generate_chunk_context(doc_text, original_text)
+            # Generate chunk-specific context using persistent LLM session (reuses cached document)
+            chunk_context = llm_session.get_chunk_context(original_text)
 
-        # Build contextual text: prepend context to original text
-        # If LLM fails to generate context, just use the original text
-        contextual_text = (
-            f"{chunk_context}\n\n{original_text}" if chunk_context else original_text
-        )
+            # Build contextual text: prepend context to original text
+            contextual_text = f"{chunk_context}\n\n{original_text}"
 
-        chunk_data = {
-            "text": original_text,  # Original chunk text
-            "contextual_text": contextual_text,  # Context-enhanced text for embeddings and BM25
-            "metadata": chunk.meta.model_dump(),
-        }
-        chunks_data.append(chunk_data)
+            chunk_data = {
+                "text": original_text,  # Original chunk text
+                "contextual_text": contextual_text,  # Context-enhanced text for embeddings and BM25
+                "metadata": chunk.meta.model_dump(),
+            }
+            chunks_data.append(chunk_data)
+    finally:
+        # Always close the session to free resources
+        llm_session.close()
 
     if not chunks_data:
         logger.warning(f"No chunks found in {source_file}")
@@ -218,14 +233,9 @@ def generate_chunks_for_document(
         "chunks": chunks_data,
     }
 
-    try:
-        with open(chunks_file, "w") as f:
-            json.dump(output_data, f, indent=2)
-        return chunks_file
-    except Exception:
-        if chunks_file.exists():
-            chunks_file.unlink()
-        raise
+    with open(chunks_file, "w") as f:
+        json.dump(output_data, f, indent=2)
+    return chunks_file
 
 
 def generate_chunks_batch(
@@ -264,6 +274,11 @@ def generate_chunks_batch(
     # (This logging was ruining the screen-stable Rich progress bar, also the
     # warning is a known "false alarm" per google search.)
     transformers_logging.set_verbosity_error()
+
+    # Suppress httpx INFO-level logging (HTTP request logs)
+    import logging
+
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     content_dir_path = Path(content_dir)
     for file in source_files:
@@ -333,8 +348,9 @@ def generate_chunks(
         worker_function=generate_chunks_batch,
         worker_args=(content_dir, force),
         progress_message="Chunking files...",
-        batch_size=5,
+        batch_size=1,  # Process 1 file per batch for better log visibility
         mem_threshold_mb=2000,
+        max_workers=1,  # Use 1 worker for sequential processing and clear logs
     )
     chunked, errors = chunker.process_files(source_iter, count)
     end = time.time()
