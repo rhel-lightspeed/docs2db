@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
@@ -110,44 +111,45 @@ def get_tokenizer():
     )
 
 
-class LLMSession:
-    """Persistent LLM session for reusing document context across chunks."""
+class LLMProvider(ABC):
+    """Abstract base class for LLM providers."""
 
-    def __init__(
-        self,
-        doc_text: str,
-        model: str = "qwen2.5:7b-instruct",
-        base_url: str = "http://localhost:11434",
-    ):
-        self.model = model
+    @abstractmethod
+    def get_chunk_context(self, chunk_prompt: str) -> str:
+        """Get context for a chunk from the LLM.
+
+        Args:
+            chunk_prompt: The prompt to send to the LLM
+
+        Returns:
+            str: The generated context
+        """
+        pass
+
+    @abstractmethod
+    def close(self):
+        """Clean up provider resources."""
+        pass
+
+
+class OpenAICompatibleProvider(LLMProvider):
+    """Provider for OpenAI-compatible APIs (Ollama, OpenAI, etc)."""
+
+    def __init__(self, base_url: str, model: str, messages: list[dict]):
+        """Initialize OpenAI-compatible provider.
+
+        Args:
+            base_url: Base URL for the API endpoint
+            model: Model identifier
+            messages: Initial conversation messages (system + document context)
+        """
         self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.messages = messages
         self.client = httpx.Client(timeout=60.0)
-        # Initialize conversation with the document
-        self.messages = [
-            {
-                "role": "system",
-                "content": "You are an expert at providing concise context for text chunks within documents.",
-            },
-            {
-                "role": "user",
-                "content": f"I will give you a document, then ask you to provide context for specific chunks from it.\n\n<document>\n{doc_text}\n</document>",
-            },
-            {
-                "role": "assistant",
-                "content": "I have read the document. Please provide the chunks you'd like me to contextualize.",
-            },
-        ]
 
-    def get_chunk_context(self, chunk_text: str) -> str:
-        """Get context for a chunk using the cached document."""
-        # Add the chunk query to conversation
-        chunk_prompt = f"""Here is a chunk from the document:
-<chunk>
-{chunk_text}
-</chunk>
-
-Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else."""
-
+    def get_chunk_context(self, chunk_prompt: str) -> str:
+        """Get context for a chunk using OpenAI-compatible API."""
         # Create messages for this request (includes conversation history)
         request_messages = self.messages + [{"role": "user", "content": chunk_prompt}]
 
@@ -170,13 +172,162 @@ Please give a short succinct context to situate this chunk within the overall do
         self.client.close()
 
 
+class WatsonXProvider(LLMProvider):
+    """Provider for IBM WatsonX."""
+
+    def __init__(
+        self, api_key: str, project_id: str, url: str, model: str, doc_text: str
+    ):
+        """Initialize WatsonX provider.
+
+        Args:
+            api_key: WatsonX API key
+            project_id: WatsonX project ID
+            url: WatsonX API URL
+            model: Model identifier
+            doc_text: Full document text for context
+        """
+        from ibm_watsonx_ai import APIClient, Credentials
+        from ibm_watsonx_ai.foundation_models import ModelInference
+
+        self.model = model
+        self.doc_text = doc_text
+
+        # Initialize WatsonX API client
+        credentials = Credentials(api_key=api_key, url=url)
+        self.api_client = APIClient(credentials=credentials, project_id=project_id)
+
+        # Create model inference instance
+        self.model_inference = ModelInference(
+            model_id=model,
+            api_client=self.api_client,
+        )
+
+    def get_chunk_context(self, chunk_prompt: str) -> str:
+        """Get context for a chunk using WatsonX SDK."""
+        # WatsonX uses a chat format with messages
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert at providing concise context for text chunks within documents.",
+            },
+            {
+                "role": "user",
+                "content": f"I will give you a document, then ask you to provide context for a specific chunk from it.\n\n<document>\n{self.doc_text}\n</document>",
+            },
+            {
+                "role": "assistant",
+                "content": "I have read the document. Please provide the chunk you'd like me to contextualize.",
+            },
+            {"role": "user", "content": chunk_prompt},
+        ]
+
+        # Call WatsonX with chat messages
+        params = {
+            "temperature": 0.3,
+            "max_tokens": 200,
+        }
+
+        response = self.model_inference.chat(messages=messages, params=params)
+
+        # Extract content from response
+        return response["choices"][0]["message"]["content"].strip()
+
+    def close(self):
+        """Clean up WatsonX resources."""
+        # WatsonX APIClient doesn't require explicit cleanup
+        pass
+
+
+class LLMSession:
+    """Persistent LLM session for reusing document context across chunks."""
+
+    def __init__(
+        self,
+        doc_text: str,
+        model: str = "qwen2.5:7b-instruct",
+        openai_url: str | None = None,
+        watsonx_url: str | None = None,
+    ):
+        """Initialize LLM session with appropriate provider.
+
+        Args:
+            doc_text: Full document text for context
+            model: Model identifier
+            openai_url: OpenAI-compatible API URL (mutually exclusive with watsonx_url)
+            watsonx_url: WatsonX API URL (mutually exclusive with openai_url)
+        """
+        self.doc_text = doc_text
+        self.model = model
+
+        # Determine which provider to use
+        if watsonx_url:
+            # Use WatsonX provider
+            api_key = os.environ.get("WATSONX_API_KEY", "")
+            project_id = os.environ.get("WATSONX_PROJECT_ID", "")
+
+            if not api_key or not project_id:
+                raise ValueError(
+                    "WATSONX_API_KEY and WATSONX_PROJECT_ID environment variables must be set"
+                )
+
+            self.provider = WatsonXProvider(
+                api_key=api_key,
+                project_id=project_id,
+                url=watsonx_url,
+                model=model,
+                doc_text=doc_text,
+            )
+        else:
+            # Use OpenAI-compatible provider (default to Ollama)
+            base_url = openai_url or "http://localhost:11434"
+
+            # Initialize conversation messages for OpenAI-compatible provider
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are an expert at providing concise context for text chunks within documents.",
+                },
+                {
+                    "role": "user",
+                    "content": f"I will give you a document, then ask you to provide context for specific chunks from it.\n\n<document>\n{doc_text}\n</document>",
+                },
+                {
+                    "role": "assistant",
+                    "content": "I have read the document. Please provide the chunks you'd like me to contextualize.",
+                },
+            ]
+
+            self.provider = OpenAICompatibleProvider(
+                base_url=base_url,
+                model=model,
+                messages=messages,
+            )
+
+    def get_chunk_context(self, chunk_text: str) -> str:
+        """Get context for a chunk using the configured provider."""
+        chunk_prompt = f"""Here is a chunk from the document:
+<chunk>
+{chunk_text}
+</chunk>
+
+Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else."""
+
+        return self.provider.get_chunk_context(chunk_prompt)
+
+    def close(self):
+        """Close the provider session."""
+        self.provider.close()
+
+
 def generate_chunks_for_document(
     source_str: str,
     content_dir: Path,
     force: bool,
     skip_context: bool = False,
     context_model: str = "qwen2.5:7b-instruct",
-    llm_base_url: str = "http://localhost:11434",
+    openai_url: str | None = None,
+    watsonx_url: str | None = None,
 ) -> Path:
     """Generate chunks for a document."""
     source_file = Path(source_str)
@@ -197,7 +348,12 @@ def generate_chunks_for_document(
     llm_session = None
     if not skip_context:
         doc_text = dl_doc.export_to_markdown()
-        llm_session = LLMSession(doc_text, model=context_model, base_url=llm_base_url)
+        llm_session = LLMSession(
+            doc_text,
+            model=context_model,
+            openai_url=openai_url,
+            watsonx_url=watsonx_url,
+        )
 
     try:
         for chunk_idx, chunk in enumerate(chunker.chunk(dl_doc=dl_doc)):
@@ -257,7 +413,8 @@ def generate_chunks_batch(
     force: bool = False,
     skip_context: bool = False,
     context_model: str = "qwen2.5:7b-instruct",
-    llm_base_url: str = "http://localhost:11434",
+    openai_url: str | None = None,
+    watsonx_url: str | None = None,
 ) -> dict[str, Any]:
     """Worker function for generating chunks files by the batch.
 
@@ -266,7 +423,8 @@ def generate_chunks_batch(
         force: If True, reprocess files even if chunks are up-to-date
         skip_context: If True, skip LLM contextual chunk generation
         context_model: LLM model for context generation
-        llm_base_url: Base URL for LLM API (OpenAI-compatible)
+        openai_url: OpenAI-compatible API URL
+        watsonx_url: WatsonX API URL
 
     Returns:
         dict[str, Any]: Processing results containing:
@@ -299,6 +457,9 @@ def generate_chunks_batch(
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    # Suppress IBM WatsonX SDK logging (very verbose)
+    logging.getLogger("ibm_watsonx_ai").setLevel(logging.WARNING)
+
     content_dir_path = Path(content_dir)
     for file in source_files:
         try:
@@ -309,7 +470,8 @@ def generate_chunks_batch(
                 force=force,
                 skip_context=skip_context,
                 context_model=context_model,
-                llm_base_url=llm_base_url,
+                openai_url=openai_url,
+                watsonx_url=watsonx_url,
             )
             successes += 1
         except Exception as e:
@@ -338,7 +500,8 @@ def generate_chunks(
     dry_run: bool = False,
     skip_context: bool = False,
     context_model: str = "qwen2.5:7b-instruct",
-    llm_base_url: str = "http://localhost:11434",
+    openai_url: str | None = None,
+    watsonx_url: str | None = None,
 ) -> bool:
     """Generate .chunks.json files from source files using multiprocessing.
 
@@ -349,12 +512,21 @@ def generate_chunks(
         dry_run (bool): Show what would be processed without doing it.
         skip_context (bool): Skip LLM contextual chunk generation.
         context_model (str): LLM model for context generation.
-        llm_base_url (str): Base URL for LLM API (OpenAI-compatible).
+        openai_url (str | None): OpenAI-compatible API URL.
+        watsonx_url (str | None): WatsonX API URL.
 
     Returns:
         bool: True if successful, False if any errors occurred.
     """
     start = time.time()
+
+    # Determine provider info for logging
+    if skip_context:
+        provider_info = "disabled"
+    elif watsonx_url:
+        provider_info = f"enabled (watsonx: {context_model})"
+    else:
+        provider_info = f"enabled (openai: {context_model})"
 
     logger.info(
         "\nChunking configuration:\n"
@@ -362,7 +534,7 @@ def generate_chunks(
         f"  Max tokens : {CHUNKING_CONFIG['max_tokens']}\n"
         f"  Merge peers: {CHUNKING_CONFIG['merge_peers']}\n"
         f"  Chunker    : {CHUNKING_CONFIG['chunker_class']}\n"
-        f"  Context    : {'disabled' if skip_context else f'enabled ({context_model})'}"
+        f"  Context    : {provider_info}"
     )
 
     ensure_model_available(model_id=CHUNKING_CONFIG["tokenizer_model"])
@@ -382,7 +554,14 @@ def generate_chunks(
 
     chunker = BatchProcessor(
         worker_function=generate_chunks_batch,
-        worker_args=(content_dir, force, skip_context, context_model, llm_base_url),
+        worker_args=(
+            content_dir,
+            force,
+            skip_context,
+            context_model,
+            openai_url,
+            watsonx_url,
+        ),
         progress_message="Chunking files...",
         batch_size=1,
         mem_threshold_mb=2000,

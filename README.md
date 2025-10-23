@@ -48,20 +48,22 @@ The `/content` directory holds Docling docs in .json format. In addition, it hol
 uv run docs2db chunk --skip-context
 ```
 
-**Use a faster model:**
+**Use a faster local model (Ollama):**
 ```bash
 uv run docs2db chunk --context-model qwen2.5:3b-instruct
 ```
 
-**Use an external LLM provider (e.g., WatsonX, OpenAI):**
+**Use OpenAI:**
 ```bash
-# WatsonX example
-export WATSONX_API_KEY="your-api-key"
-uv run docs2db chunk --llm-base-url "https://us-south.ml.cloud.ibm.com/ml/v1/text/chat" --context-model "ibm/granite-13b-chat-v2"
+export OPENAI_API_KEY="sk-..."
+uv run docs2db chunk --openai-url "https://api.openai.com" --context-model "gpt-4o-mini"
+```
 
-# OpenAI example
-export OPENAI_API_KEY="your-api-key"
-uv run docs2db chunk --llm-base-url "https://api.openai.com" --context-model "gpt-4o-mini"
+**Use IBM WatsonX:**
+```bash
+export WATSONX_API_KEY="your-api-key"
+export WATSONX_PROJECT_ID="your-project-id"
+uv run docs2db chunk --watsonx-url "https://us-south.ml.cloud.ibm.com" --context-model "ibm/granite-13b-chat-v2"
 ```
 
 Use `uv run docs2db chunk --help` or `uv run docs2db embed --help` to learn more.

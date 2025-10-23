@@ -1,13 +1,14 @@
 # External LLM Provider Configuration
 
-Docs2DB supports any OpenAI-compatible LLM API for contextual chunk generation. This guide shows how to configure different providers.
+Docs2DB supports OpenAI-compatible APIs and IBM WatsonX for contextual chunk generation. This guide shows how to configure different providers.
 
 ## Quick Start
 
-The chunking system uses three key parameters:
+The chunking system uses these key parameters:
 - `--skip-context`: Disable contextual generation entirely (fastest, lower quality)
 - `--context-model`: Model name/identifier for the LLM
-- `--llm-base-url`: Base URL for the OpenAI-compatible API endpoint
+- `--openai-url`: URL for OpenAI-compatible API (Ollama, OpenAI, etc.)
+- `--watsonx-url`: URL for IBM WatsonX API (mutually exclusive with `--openai-url`)
 
 ## Local (Ollama)
 
@@ -19,7 +20,7 @@ uv run docs2db chunk
 
 This uses:
 - Model: `qwen2.5:7b-instruct`
-- URL: `http://localhost:11434`
+- URL: `http://localhost:11434` (default Ollama)
 
 ### Faster local models:
 
@@ -33,24 +34,28 @@ uv run docs2db chunk --context-model qwen2.5:1.5b-instruct
 # Alternative fast models
 uv run docs2db chunk --context-model llama3.2:3b-instruct
 uv run docs2db chunk --context-model gemma2:2b-instruct
+
+# Custom Ollama URL
+uv run docs2db chunk --openai-url "http://localhost:11434" --context-model qwen2.5:7b-instruct
 ```
 
 ## WatsonX
 
-WatsonX provides IBM's Granite and other models. Authentication requires an API key.
+WatsonX provides IBM's Granite and other models. Authentication requires an API key and project ID.
 
 ### Setup:
 
-1. Get your API key from IBM Cloud
-2. Set environment variable:
+1. Get your API key and project ID from IBM Cloud
+2. Set environment variables:
    ```bash
    export WATSONX_API_KEY="your-api-key-here"
+   export WATSONX_PROJECT_ID="your-project-id-here"
    ```
 
 3. Run chunking:
    ```bash
    uv run docs2db chunk \
-     --llm-base-url "https://us-south.ml.cloud.ibm.com/ml/v1" \
+     --watsonx-url "https://us-south.ml.cloud.ibm.com" \
      --context-model "ibm/granite-13b-chat-v2"
    ```
 
@@ -78,7 +83,7 @@ WatsonX provides IBM's Granite and other models. Authentication requires an API 
 3. Run chunking:
    ```bash
    uv run docs2db chunk \
-     --llm-base-url "https://api.openai.com" \
+     --openai-url "https://api.openai.com" \
      --context-model "gpt-4o-mini"
    ```
 
@@ -87,74 +92,13 @@ WatsonX provides IBM's Granite and other models. Authentication requires an API 
 - `gpt-4o` - More capable, slower, more expensive
 - `gpt-3.5-turbo` - Cheapest, decent quality
 
-## Azure OpenAI
-
-### Setup:
-
-```bash
-export AZURE_OPENAI_API_KEY="your-key"
-
-uv run docs2db chunk \
-  --llm-base-url "https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT" \
-  --context-model "gpt-4o-mini"
-```
-
-Replace `YOUR-RESOURCE` and `YOUR-DEPLOYMENT` with your Azure values.
-
-## Anthropic (Claude)
-
-Note: Anthropic's API is not OpenAI-compatible by default. You'll need a proxy/adapter or use a service that provides OpenAI-compatible access.
-
-If using a compatible endpoint:
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-uv run docs2db chunk \
-  --llm-base-url "https://api.anthropic.com" \
-  --context-model "claude-3-haiku-20240307"
-```
-
-## Other Providers
-
-Any OpenAI-compatible API should work:
-
-### Together.ai
-```bash
-export TOGETHER_API_KEY="..."
-uv run docs2db chunk \
-  --llm-base-url "https://api.together.xyz" \
-  --context-model "mistralai/Mixtral-8x7B-Instruct-v0.1"
-```
-
-### Anyscale
-```bash
-export ANYSCALE_API_KEY="..."
-uv run docs2db chunk \
-  --llm-base-url "https://api.endpoints.anyscale.com" \
-  --context-model "meta-llama/Llama-2-7b-chat-hf"
-```
-
-### Fireworks.ai
-```bash
-export FIREWORKS_API_KEY="..."
-uv run docs2db chunk \
-  --llm-base-url "https://api.fireworks.ai" \
-  --context-model "accounts/fireworks/models/llama-v3-70b-instruct"
-```
-
 ## Authentication
 
-Most providers require authentication. The LLM session will automatically include API keys from environment variables in the request headers.
+Authentication is handled via environment variables:
 
-Common environment variables:
-- `OPENAI_API_KEY`
-- `WATSONX_API_KEY`
-- `AZURE_OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `TOGETHER_API_KEY`
-
-**Note**: The current implementation expects the provider to handle authentication via standard OpenAI-compatible headers. If your provider requires custom authentication, you may need to extend the `LLMSession` class.
+**Required for WatsonX:**
+- `WATSONX_API_KEY` - Your IBM Cloud API key
+- `WATSONX_PROJECT_ID` - Your WatsonX project ID
 
 ## Performance Considerations
 
