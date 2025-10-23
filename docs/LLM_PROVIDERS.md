@@ -9,6 +9,23 @@ The chunking system uses these key parameters:
 - `--context-model`: Model name/identifier for the LLM
 - `--openai-url`: URL for OpenAI-compatible API (Ollama, OpenAI, etc.)
 - `--watsonx-url`: URL for IBM WatsonX API (mutually exclusive with `--openai-url`)
+- `--context-limit`: Override model context limit (in tokens) for map-reduce summarization
+
+**Configuration Methods:**
+
+1. **CLI flags** (highest priority) - one-time override
+2. **Environment variables** - session-specific
+3. **`.env` file** - project defaults (see `.env.example`)
+4. **Code defaults** - fallback values
+
+All settings can be configured via environment variables with uppercase names:
+- `LLM_SKIP_CONTEXT`
+- `LLM_CONTEXT_MODEL`
+- `LLM_OPENAI_URL`
+- `LLM_WATSONX_URL`
+- `LLM_CONTEXT_LIMIT_OVERRIDE`
+- `WATSONX_API_KEY`
+- `WATSONX_PROJECT_ID`
 
 ## Local (Ollama)
 
@@ -99,6 +116,94 @@ Authentication is handled via environment variables:
 **Required for WatsonX:**
 - `WATSONX_API_KEY` - Your IBM Cloud API key
 - `WATSONX_PROJECT_ID` - Your WatsonX project ID
+
+## Map-Reduce Summarization
+
+When a document exceeds the model's context window, docs2db automatically applies map-reduce summarization:
+
+### How It Works
+
+1. **Detection**: Before processing, docs2db estimates the document's token count and compares it to the model's context limit (70% safety margin applied).
+
+2. **Map Phase**: The document is split into chunks that fit within the context limit (minus ~600 tokens reserved for prompt overhead and response), and each chunk is summarized independently.
+
+3. **Reduce Phase**: The summaries are combined. If the combined summary still exceeds the limit, the process is repeated recursively until the text fits.
+
+4. **Contextualization**: The final summarized document is used as context for generating chunk-specific contexts.
+
+**Note**: Each chunk is automatically sized to account for:
+- The summarization prompt (~100 tokens)
+- The requested response (500 tokens)
+- A small safety buffer
+
+This ensures the actual API request stays within the model's limits.
+
+### Model Context Limits
+
+Default context limits (in tokens):
+- **Ollama models**:
+  - qwen2.5 series: 32,768 tokens
+  - llama3.2 series: 131,072 tokens
+  - gemma2:2b: 8,192 tokens
+- **OpenAI models**:
+  - gpt-4o-mini, gpt-4o: 128,000 tokens
+  - gpt-3.5-turbo: 16,385 tokens
+- **WatsonX models**:
+  - ibm/granite-3-8b-instruct: 131,072 tokens
+  - meta-llama models vary by version
+
+The system uses 70% of the context limit to account for:
+- System messages and prompts
+- Response generation tokens
+- Token estimation inaccuracies
+
+### Overriding Context Limits
+
+If the built-in limits are incorrect for your model, you can override them:
+
+**Via CLI:**
+```bash
+uv run docs2db chunk --context-limit 65536
+```
+
+**Via environment variable:**
+```bash
+export LLM_CONTEXT_LIMIT_OVERRIDE=65536
+uv run docs2db chunk
+```
+
+**Via .env file:**
+```bash
+# In .env
+LLM_CONTEXT_LIMIT_OVERRIDE=65536
+```
+
+This is useful when:
+- Using a custom model not in the built-in list
+- Using a model with a different configuration than the default
+- The built-in limit is too conservative or aggressive for your use case
+
+### Logging
+
+When summarization occurs, you'll see log messages like:
+```
+Document too large for model context window. Starting map-reduce summarization (model: qwen2.5:7b-instruct)
+Split document into 3 chunks for summarization
+Summarizing chunk 1/3
+Summarizing chunk 2/3
+Summarizing chunk 3/3
+Combined 3 summaries into 8542 tokens
+Summarization complete. Reduced from 45231 to 8542 tokens
+```
+
+### Performance Impact
+
+Map-reduce summarization adds processing time proportional to:
+- Number of chunks (document size / context limit)
+- Model inference speed
+- Recursion depth (for very large documents)
+
+For most documents that fit within the context window, no summarization is needed and no performance impact occurs.
 
 ## Performance Considerations
 

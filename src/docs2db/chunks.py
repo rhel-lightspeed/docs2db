@@ -18,6 +18,7 @@ from docling_core.types.doc.document import DoclingDocument
 from transformers import AutoTokenizer
 from transformers.utils import logging as transformers_logging
 
+from docs2db.config import settings
 from docs2db.const import (
     CHUNKING_CONFIG,
     CHUNKING_SCHEMA_VERSION,
@@ -28,6 +29,37 @@ from docs2db.utils import ensure_model_available, hash_file
 
 logger = structlog.get_logger(__name__)
 
+
+# Model context limits (in tokens)
+# Used to detect when documents are too large and need map-reduce summarization
+MODEL_CONTEXT_LIMITS = {
+    # WatsonX models
+    "ibm/granite-3-8b-instruct": 131072,
+    "ibm/granite-3-2-8b-instruct": 8192,
+    "ibm/granite-3-2b-instruct": 8192,
+    "ibm/granite-3-3-8b-instruct": 8192,
+    "meta-llama/llama-3-3-70b-instruct": 8192,
+    "meta-llama/llama-3-1-70b-gptq": 131072,
+    "meta-llama/llama-3-1-8b": 131072,
+    "meta-llama/llama-3-405b-instruct": 131072,
+    # Ollama models (approximate)
+    "qwen2.5:7b-instruct": 32768,
+    "qwen2.5:3b-instruct": 32768,
+    "qwen2.5:1.5b-instruct": 32768,
+    "llama3.2:3b": 131072,
+    "llama3.2:1b": 131072,
+    "gemma2:2b": 8192,
+    # OpenAI models
+    "gpt-4o-mini": 128000,
+    "gpt-4o": 128000,
+    "gpt-3.5-turbo": 16385,
+}
+
+# Safety margin: use 70% of context limit to account for:
+# - System messages and prompts
+# - Response tokens (200)
+# - Token estimation inaccuracies
+CONTEXT_SAFETY_MARGIN = 0.7
 
 CURRENT_METADATA = {
     "max_tokens": CHUNKING_CONFIG["max_tokens"],
@@ -98,6 +130,65 @@ def source_files(
     return count, source_files_iter()
 
 
+def estimate_tokens(text: str) -> int:
+    """Estimate token count for text.
+
+    Uses a conservative approximation based on character count.
+    This accounts for diverse content types (prose, code, data, spreadsheets).
+
+    Formula: chars / 3.0
+    - Regular English prose: ~4-5 chars/token (we're conservative at 3)
+    - Code/data/numbers: ~2-3 chars/token (we handle this well)
+    - Includes safety margin for tokenization variance
+
+    Args:
+        text: Text to estimate tokens for
+
+    Returns:
+        int: Estimated token count
+    """
+    char_count = len(text)
+    # Use character-based estimation: 3 chars per token is conservative
+    return int(char_count / 3.0)
+
+
+def split_text_into_chunks(text: str, max_tokens: int) -> list[str]:
+    """Split text into chunks that fit within token limit.
+
+    Args:
+        text: Text to split
+        max_tokens: Maximum tokens per chunk
+
+    Returns:
+        list[str]: List of text chunks
+    """
+    # Use character-based splitting to match our token estimation
+    max_chars = int(max_tokens * 3.0)  # Reverse the estimation (chars / 3 = tokens)
+
+    chunks = []
+    words = text.split()
+    current_chunk = []
+    current_chars = 0
+
+    for word in words:
+        word_len = len(word) + 1  # +1 for space
+
+        if current_chars + word_len > max_chars and current_chunk:
+            # Current chunk would exceed limit, save it and start new one
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [word]
+            current_chars = word_len
+        else:
+            current_chunk.append(word)
+            current_chars += word_len
+
+    # Add remaining words
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    return chunks
+
+
 @cache
 def get_tokenizer():
     hf_tokenizer = AutoTokenizer.from_pretrained(
@@ -123,6 +214,18 @@ class LLMProvider(ABC):
 
         Returns:
             str: The generated context
+        """
+        pass
+
+    @abstractmethod
+    def summarize_text(self, text: str) -> str:
+        """Summarize a text chunk.
+
+        Args:
+            text: Text to summarize
+
+        Returns:
+            str: Summarized text
         """
         pass
 
@@ -161,6 +264,38 @@ class OpenAICompatibleProvider(LLMProvider):
                 "stream": False,
                 "temperature": 0.3,
                 "max_tokens": 200,
+            },
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"].strip()
+
+    def summarize_text(self, text: str) -> str:
+        """Summarize text using OpenAI-compatible API."""
+        prompt = f"""Please provide a concise summary of the following text, focusing on the key information and main topics:
+
+{text}
+
+Summary:"""
+
+        # Log what we're about to send
+        word_count = len(prompt.split())
+        estimated_tokens = estimate_tokens(prompt)
+        char_count = len(prompt)
+        logger.info(
+            f"Sending summarization request: {word_count} words, "
+            f"{estimated_tokens} estimated tokens, {char_count} chars "
+            f"(model: {self.model})"
+        )
+
+        response = self.client.post(
+            f"{self.base_url}/v1/chat/completions",
+            json={
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "temperature": 0.3,
+                "max_tokens": 500,
             },
         )
         response.raise_for_status()
@@ -233,10 +368,105 @@ class WatsonXProvider(LLMProvider):
         # Extract content from response
         return response["choices"][0]["message"]["content"].strip()
 
+    def summarize_text(self, text: str) -> str:
+        """Summarize text using WatsonX SDK."""
+        prompt_content = f"""Please provide a concise summary of the following text, focusing on the key information and main topics:
+
+{text}
+
+Summary:"""
+
+        messages = [
+            {
+                "role": "user",
+                "content": prompt_content,
+            }
+        ]
+
+        # Log what we're about to send
+        word_count = len(prompt_content.split())
+        estimated_tokens = estimate_tokens(prompt_content)
+        char_count = len(prompt_content)
+        logger.info(
+            f"Sending WatsonX summarization request: {word_count} words, "
+            f"{estimated_tokens} estimated tokens, {char_count} chars "
+            f"(model: {self.model})"
+        )
+
+        params = {
+            "temperature": 0.3,
+            "max_tokens": 500,
+        }
+
+        response = self.model_inference.chat(messages=messages, params=params)
+        return response["choices"][0]["message"]["content"].strip()
+
     def close(self):
         """Clean up WatsonX resources."""
         # WatsonX APIClient doesn't require explicit cleanup
         pass
+
+
+def map_reduce_summarize(
+    provider: LLMProvider, text: str, max_tokens: int, model_name: str
+) -> str:
+    """Summarize large text using map-reduce approach.
+
+    Args:
+        provider: LLM provider to use for summarization
+        text: Text to summarize
+        max_tokens: Maximum tokens per chunk (already includes 70% safety margin)
+        model_name: Model name for logging
+
+    Returns:
+        str: Summarized text that fits within context limit
+    """
+    logger.info(
+        f"Document too large for model context window. "
+        f"Starting map-reduce summarization (model: {model_name})"
+    )
+
+    # Reserve tokens for prompt overhead and response
+    # Summarization prompt adds ~100 tokens, response uses 500 tokens
+    PROMPT_OVERHEAD = 600
+    chunk_size = max_tokens - PROMPT_OVERHEAD
+
+    if chunk_size <= 0:
+        raise ValueError(
+            f"max_tokens ({max_tokens}) too small to allow for prompt overhead"
+        )
+
+    # Split text into chunks, accounting for prompt overhead
+    chunks = split_text_into_chunks(text, chunk_size)
+    logger.info(
+        f"Split document into {len(chunks)} chunks for summarization (chunk_size: {chunk_size} tokens)"
+    )
+
+    # Map: Summarize each chunk
+    summaries = []
+    for i, chunk in enumerate(chunks, 1):
+        chunk_words = len(chunk.split())
+        chunk_tokens = estimate_tokens(chunk)
+        logger.info(
+            f"Summarizing chunk {i}/{len(chunks)}: "
+            f"{chunk_words} words, {chunk_tokens} estimated tokens"
+        )
+        summary = provider.summarize_text(chunk)
+        summaries.append(summary)
+
+    # Combine summaries
+    combined = "\n\n".join(summaries)
+    combined_tokens = estimate_tokens(combined)
+
+    logger.info(f"Combined {len(summaries)} summaries into {combined_tokens} tokens")
+
+    # Reduce: If combined summaries still too large, recursively summarize
+    # Use the same chunk_size (not max_tokens) for consistency
+    if combined_tokens > chunk_size:
+        logger.info("Combined summaries still too large, applying recursive reduction")
+        return map_reduce_summarize(provider, combined, max_tokens, model_name)
+
+    return combined
 
 
 class LLMSession:
@@ -248,6 +478,7 @@ class LLMSession:
         model: str = "qwen2.5:7b-instruct",
         openai_url: str | None = None,
         watsonx_url: str | None = None,
+        context_limit_override: int | None = None,
     ):
         """Initialize LLM session with appropriate provider.
 
@@ -256,21 +487,65 @@ class LLMSession:
             model: Model identifier
             openai_url: OpenAI-compatible API URL (mutually exclusive with watsonx_url)
             watsonx_url: WatsonX API URL (mutually exclusive with openai_url)
+            context_limit_override: Override model context limit (in tokens)
         """
         self.doc_text = doc_text
         self.model = model
 
-        # Determine which provider to use
+        # Check if document needs summarization
+        doc_words = len(doc_text.split())
+        doc_tokens = estimate_tokens(doc_text)
+        doc_chars = len(doc_text)
+
+        # Use override if provided, otherwise use model's known limit
+        if context_limit_override:
+            model_limit = context_limit_override
+        else:
+            model_limit = MODEL_CONTEXT_LIMITS.get(
+                model, 32768
+            )  # Default to 32K if unknown
+        usable_limit = int(model_limit * CONTEXT_SAFETY_MARGIN)
+
+        logger.info(
+            f"Document analysis: {doc_words} words, {doc_tokens} estimated tokens, {doc_chars} chars | "
+            f"Model limit: {model_limit} tokens, Usable (70%): {usable_limit} tokens"
+        )
+
+        # Determine which provider to use and create it
         if watsonx_url:
-            # Use WatsonX provider
-            api_key = os.environ.get("WATSONX_API_KEY", "")
-            project_id = os.environ.get("WATSONX_PROJECT_ID", "")
+            # Use WatsonX provider - get credentials from settings
+            api_key = settings.watsonx_api_key
+            project_id = settings.watsonx_project_id
 
             if not api_key or not project_id:
                 raise ValueError(
-                    "WATSONX_API_KEY and WATSONX_PROJECT_ID environment variables must be set"
+                    "WATSONX_API_KEY and WATSONX_PROJECT_ID must be set (via env vars or .env file)"
                 )
 
+            # Create provider first (needed for summarization)
+            temp_provider = WatsonXProvider(
+                api_key=api_key,
+                project_id=project_id,
+                url=watsonx_url,
+                model=model,
+                doc_text="",  # Temporary, will update after summarization if needed
+            )
+
+            # Check if summarization is needed
+            if doc_tokens > usable_limit:
+                logger.info(
+                    f"Document exceeds context limit ({doc_tokens} > {usable_limit}). "
+                    f"Using map-reduce summarization."
+                )
+                doc_text = map_reduce_summarize(
+                    temp_provider, doc_text, usable_limit, model
+                )
+                final_tokens = estimate_tokens(doc_text)
+                logger.info(
+                    f"Summarization complete. Reduced from {doc_tokens} to {final_tokens} tokens"
+                )
+
+            # Create final provider with (potentially summarized) doc_text
             self.provider = WatsonXProvider(
                 api_key=api_key,
                 project_id=project_id,
@@ -278,24 +553,59 @@ class LLMSession:
                 model=model,
                 doc_text=doc_text,
             )
+
+            # Close temporary provider
+            temp_provider.close()
+
         else:
             # Use OpenAI-compatible provider (default to Ollama)
             base_url = openai_url or "http://localhost:11434"
 
             # Initialize conversation messages for OpenAI-compatible provider
-            messages = [
+            messages_template = [
                 {
                     "role": "system",
                     "content": "You are an expert at providing concise context for text chunks within documents.",
                 },
                 {
                     "role": "user",
-                    "content": f"I will give you a document, then ask you to provide context for specific chunks from it.\n\n<document>\n{doc_text}\n</document>",
+                    "content": "I will give you a document, then ask you to provide context for specific chunks from it.\n\n<document>\n{doc_text}\n</document>",
                 },
                 {
                     "role": "assistant",
                     "content": "I have read the document. Please provide the chunks you'd like me to contextualize.",
                 },
+            ]
+
+            # Create temporary provider for summarization if needed
+            if doc_tokens > usable_limit:
+                logger.info(
+                    f"Document exceeds context limit ({doc_tokens} > {usable_limit}). "
+                    f"Using map-reduce summarization."
+                )
+                # Create temp provider for summarization
+                temp_messages = [
+                    {"role": "user", "content": "placeholder"}
+                ]  # Won't use messages for summarization
+                temp_provider = OpenAICompatibleProvider(
+                    base_url=base_url, model=model, messages=temp_messages
+                )
+
+                doc_text = map_reduce_summarize(
+                    temp_provider, doc_text, usable_limit, model
+                )
+                final_tokens = estimate_tokens(doc_text)
+                logger.info(
+                    f"Summarization complete. Reduced from {doc_tokens} to {final_tokens} tokens"
+                )
+                temp_provider.close()
+
+            # Create messages with (potentially summarized) doc_text
+            messages = [
+                msg
+                if "{doc_text}" not in msg.get("content", "")
+                else {**msg, "content": msg["content"].format(doc_text=doc_text)}
+                for msg in messages_template
             ]
 
             self.provider = OpenAICompatibleProvider(
@@ -328,6 +638,7 @@ def generate_chunks_for_document(
     context_model: str = "qwen2.5:7b-instruct",
     openai_url: str | None = None,
     watsonx_url: str | None = None,
+    context_limit_override: int | None = None,
 ) -> Path:
     """Generate chunks for a document."""
     source_file = Path(source_str)
@@ -353,6 +664,7 @@ def generate_chunks_for_document(
             model=context_model,
             openai_url=openai_url,
             watsonx_url=watsonx_url,
+            context_limit_override=context_limit_override,
         )
 
     try:
@@ -415,6 +727,7 @@ def generate_chunks_batch(
     context_model: str = "qwen2.5:7b-instruct",
     openai_url: str | None = None,
     watsonx_url: str | None = None,
+    context_limit_override: int | None = None,
 ) -> dict[str, Any]:
     """Worker function for generating chunks files by the batch.
 
@@ -425,6 +738,7 @@ def generate_chunks_batch(
         context_model: LLM model for context generation
         openai_url: OpenAI-compatible API URL
         watsonx_url: WatsonX API URL
+        context_limit_override: Override model context limit (in tokens)
 
     Returns:
         dict[str, Any]: Processing results containing:
@@ -472,6 +786,7 @@ def generate_chunks_batch(
                 context_model=context_model,
                 openai_url=openai_url,
                 watsonx_url=watsonx_url,
+                context_limit_override=context_limit_override,
             )
             successes += 1
         except Exception as e:
@@ -502,6 +817,7 @@ def generate_chunks(
     context_model: str = "qwen2.5:7b-instruct",
     openai_url: str | None = None,
     watsonx_url: str | None = None,
+    context_limit_override: int | None = None,
 ) -> bool:
     """Generate .chunks.json files from source files using multiprocessing.
 
@@ -514,6 +830,7 @@ def generate_chunks(
         context_model (str): LLM model for context generation.
         openai_url (str | None): OpenAI-compatible API URL.
         watsonx_url (str | None): WatsonX API URL.
+        context_limit_override (int | None): Override model context limit (in tokens).
 
     Returns:
         bool: True if successful, False if any errors occurred.
@@ -561,6 +878,7 @@ def generate_chunks(
             context_model,
             openai_url,
             watsonx_url,
+            context_limit_override,
         ),
         progress_message="Chunking files...",
         batch_size=1,

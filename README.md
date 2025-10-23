@@ -43,30 +43,92 @@ The `/content` directory holds Docling docs in .json format. In addition, it hol
 
 ### Chunking Options
 
+**Configuration Precedence:**
+1. CLI flags (highest priority)
+2. Environment variables
+3. `.env` file (via Pydantic)
+4. Default values (lowest priority)
+
+See `.env.example` for all available settings.
+
 **Skip contextual generation (faster):**
 ```bash
 uv run docs2db chunk --skip-context
+# Or via .env: LLM_SKIP_CONTEXT=true
 ```
 
 **Use a faster local model (Ollama):**
 ```bash
 uv run docs2db chunk --context-model qwen2.5:3b-instruct
+# Or via .env: LLM_CONTEXT_MODEL=qwen2.5:3b-instruct
 ```
 
 **Use OpenAI:**
 ```bash
 export OPENAI_API_KEY="sk-..."
 uv run docs2db chunk --openai-url "https://api.openai.com" --context-model "gpt-4o-mini"
+# Or via .env:
+#   LLM_OPENAI_URL=https://api.openai.com
+#   LLM_CONTEXT_MODEL=gpt-4o-mini
 ```
 
 **Use IBM WatsonX:**
 ```bash
 export WATSONX_API_KEY="your-api-key"
 export WATSONX_PROJECT_ID="your-project-id"
-uv run docs2db chunk --watsonx-url "https://us-south.ml.cloud.ibm.com" --context-model "ibm/granite-13b-chat-v2"
+uv run docs2db chunk --watsonx-url "https://us-south.ml.cloud.ibm.com" --context-model "ibm/granite-3-8b-instruct"
+# Or via .env:
+#   WATSONX_API_KEY=your-api-key
+#   WATSONX_PROJECT_ID=your-project-id
+#   LLM_WATSONX_URL=https://us-south.ml.cloud.ibm.com
+#   LLM_CONTEXT_MODEL=ibm/granite-3-8b-instruct
+```
+
+**Override model context limit (for map-reduce summarization):**
+```bash
+uv run docs2db chunk --context-limit 65536
+# Or via .env: LLM_CONTEXT_LIMIT_OVERRIDE=65536
+```
+
+**Process specific files:**
+```bash
+uv run docs2db chunk --pattern "documents/**/*.json"
+# Or via .env: CHUNKING_PATTERN=documents/**/*.json
+```
+
+**Use a different content directory:**
+```bash
+uv run docs2db chunk --content-dir my-content
+# Or via .env: CONTENT_BASE_DIR=my-content
 ```
 
 Use `uv run docs2db chunk --help` or `uv run docs2db embed --help` to learn more.
+
+### Embedding Options
+
+**Configuration Precedence** (same as chunking):
+1. CLI flags (highest priority)
+2. Environment variables
+3. `.env` file (via Pydantic)
+4. Default values (lowest priority)
+
+**Use a different embedding model:**
+```bash
+uv run docs2db embed --model granite-30m-english
+# Or via .env: EMBEDDING_MODEL=granite-30m-english
+```
+
+**Process specific files:**
+```bash
+uv run docs2db embed --pattern "documents/**/*.chunks.json"
+# Or via .env: EMBEDDING_PATTERN=documents/**/*.chunks.json
+```
+
+**Use a different content directory:**
+```bash
+uv run docs2db embed --content-dir my-content
+# Or via .env: CONTENT_BASE_DIR=my-content
+```
 
 ## Database
 
@@ -116,6 +178,7 @@ Automated testing requires its own postgres database, start one with `make db-up
 Docs2DB implements modern retrieval techniques:
 
 - Contextual chunks with LLM-generated context situating each chunk within its document (following [Anthropic's Contextual Retrieval](https://www.anthropic.com/engineering/contextual-retrieval))
+- Map-reduce summarization for documents exceeding model context windows
 - Hybrid search combining BM25 (lexical) and vector embeddings (semantic)
 - Reciprocal Rank Fusion (RRF) for result combination
 - PostgreSQL full-text search with tsvector and GIN indexing

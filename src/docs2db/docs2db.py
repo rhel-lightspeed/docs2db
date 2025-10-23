@@ -8,6 +8,7 @@ import typer
 
 from docs2db.audit import perform_audit
 from docs2db.chunks import generate_chunks
+from docs2db.config import settings
 from docs2db.database import (
     check_database_status,
     dump_database,
@@ -49,9 +50,9 @@ def ingest(
 @app.command()
 def chunk(
     content_dir: Annotated[
-        str, typer.Option(help="Path to content directory")
-    ] = "content",
-    pattern: Annotated[str, typer.Option(help="File pattern to process")] = "**/*.json",
+        str | None, typer.Option(help="Path to content directory")
+    ] = None,
+    pattern: Annotated[str | None, typer.Option(help="File pattern to process")] = None,
     force: Annotated[
         bool, typer.Option(help="Force reprocessing even if up-to-date")
     ] = False,
@@ -59,11 +60,11 @@ def chunk(
         bool, typer.Option(help="Show what would process without doing it")
     ] = False,
     skip_context: Annotated[
-        bool, typer.Option(help="Skip LLM contextual chunk generation (faster)")
-    ] = False,
+        bool | None, typer.Option(help="Skip LLM contextual chunk generation (faster)")
+    ] = None,
     context_model: Annotated[
-        str, typer.Option(help="LLM model for context generation")
-    ] = "qwen2.5:7b-instruct",
+        str | None, typer.Option(help="LLM model for context generation")
+    ] = None,
     openai_url: Annotated[
         str | None,
         typer.Option(
@@ -76,23 +77,43 @@ def chunk(
             help="IBM WatsonX API URL (requires WATSONX_API_KEY and WATSONX_PROJECT_ID env vars)"
         ),
     ] = None,
+    context_limit: Annotated[
+        int | None,
+        typer.Option(
+            help="Override model context limit (in tokens) for map-reduce summarization"
+        ),
+    ] = None,
 ) -> None:
     """Generate chunks for content files."""
+    # Precedence: CLI flags > Environment variables > Settings defaults
+    final_content_dir = content_dir or settings.content_base_dir
+    final_pattern = pattern or settings.chunking_pattern
+    final_skip_context = (
+        skip_context if skip_context is not None else settings.llm_skip_context
+    )
+    final_context_model = context_model or settings.llm_context_model
+    final_openai_url = openai_url or settings.llm_openai_url
+    final_watsonx_url = watsonx_url or settings.llm_watsonx_url
+    final_context_limit = context_limit or settings.llm_context_limit_override
+
     # Validate mutually exclusive flags
-    if openai_url and watsonx_url:
-        logger.error("Cannot specify both --openai-url and --watsonx-url")
+    if final_openai_url and final_watsonx_url:
+        logger.error(
+            "Cannot specify both --openai-url and --watsonx-url (or their env var equivalents)"
+        )
         raise typer.Exit(1)
 
     try:
         if not generate_chunks(
-            content_dir,
-            pattern,
+            final_content_dir,
+            final_pattern,
             force,
             dry_run,
-            skip_context=skip_context,
-            context_model=context_model,
-            openai_url=openai_url,
-            watsonx_url=watsonx_url,
+            skip_context=final_skip_context,
+            context_model=final_context_model,
+            openai_url=final_openai_url,
+            watsonx_url=final_watsonx_url,
+            context_limit_override=final_context_limit,
         ):
             raise typer.Exit(1)
     except Docs2DBException as e:
@@ -103,15 +124,15 @@ def chunk(
 @app.command()
 def embed(
     content_dir: Annotated[
-        str, typer.Option(help="Path to content directory")
-    ] = "content",
+        str | None, typer.Option(help="Path to content directory")
+    ] = None,
     model: Annotated[
-        str,
-        typer.Option(help="Embedding model to use (granite-30m-english)"),
-    ] = "granite-30m-english",
+        str | None,
+        typer.Option(help="Embedding model to use"),
+    ] = None,
     pattern: Annotated[
-        str, typer.Option(help="File pattern for chunks files")
-    ] = "**/*.chunks.json",
+        str | None, typer.Option(help="File pattern for chunks files")
+    ] = None,
     force: Annotated[
         bool, typer.Option(help="Force regeneration of existing embeddings")
     ] = False,
@@ -120,8 +141,15 @@ def embed(
     ] = False,
 ) -> None:
     """Generate embeddings for chunked content files."""
+    # Precedence: CLI flags > Environment variables > Settings defaults
+    final_content_dir = content_dir or settings.content_base_dir
+    final_model = model or settings.embedding_model
+    final_pattern = pattern or settings.embedding_pattern
+
     try:
-        if not generate_embeddings(content_dir, model, pattern, force, dry_run):
+        if not generate_embeddings(
+            final_content_dir, final_model, final_pattern, force, dry_run
+        ):
             raise typer.Exit(1)
     except Docs2DBException as e:
         logger.error(str(e))

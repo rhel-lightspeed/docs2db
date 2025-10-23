@@ -4,51 +4,30 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Authentication credentials for the GraphQL API
-    client_id: str = ""
-    client_secret: str = ""
-
-    # Internal CA certificates for GraphQL API
-    ca_cert_file: str = "certs/ca.pem"
-
-    # URLs for authentication and GraphQL API
-    auth_url: str = "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
-    graphql_url: str = "https://vpn.graphql.redhat.com/"
-
     # Base directory for storing content
     content_base_dir: str = "content"
 
-    # Directory for storing cached GraphQL queries
-    graphql_query_dir: str = "queries"
+    # LLM Provider Settings for contextual chunking
+    llm_skip_context: bool = False
+    llm_context_model: str = "qwen2.5:7b-instruct"
+    llm_openai_url: str | None = None
+    llm_watsonx_url: str | None = None
+    llm_context_limit_override: int | None = None
 
-    # GraphQL query timeout in seconds
-    graphql_timeout: int = 60
+    # WatsonX credentials (only needed if using WatsonX provider)
+    watsonx_api_key: str = ""
+    watsonx_project_id: str = ""
 
-    # The auth token expires after 900 seconds (15 minutes), so this number should be
-    # less than that.s
-    auth_token_cache_time: int = 300
+    # Chunking Settings
+    chunking_pattern: str = "**/*.json"
 
-    # Set to True if you want to overwrite existing content with new content.
-    overwrite_content: bool = False
+    # Embedding Settings
+    embedding_model: str = "granite-30m-english"
+    embedding_pattern: str = "**/*.chunks.json"
 
-    # List of documentation slugs to process. The slug corresponds to the documentation URL
-    # on redhat.com. For example, the slug "red_hat_enterprise_linux" corresponds to:
-    # https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10
-    graphql_docs_slugs: list = [
-        # OpenShift
-        "openshift_container_platform",
-        "red_hat_openshift_lightspeed",
-        "red_hat_openshift_service_on_aws",
-        # Ansible
-        "red_hat_ansible_automation_platform",
-        # RHEL
-        "red_hat_enterprise_linux",
-        "red_hat_enterprise_linux_ai",
-        "red_hat_enterprise_linux_for_real_time",
-        "red_hat_enterprise_linux_for_sap_solutions",
-        "red_hat_insights",
-        "red_hat_satellite",
-    ]
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
 
 
 settings = Settings()
