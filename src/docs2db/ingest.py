@@ -1,17 +1,23 @@
 """Ingest files using docling to create JSON documents."""
 
 import json
+import mimetypes
 import os
 import time
+from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import psutil
 import structlog
 from docling.document_converter import DocumentConverter
 
+from docs2db.config import settings
+from docs2db.const import METADATA_SCHEMA_VERSION
 from docs2db.exceptions import Docs2DBException
 from docs2db.multiproc import BatchProcessor, setup_worker_logging
+from docs2db.utils import hash_file
 
 logger = structlog.get_logger(__name__)
 
@@ -73,6 +79,8 @@ def ingest_batch(source_files: list[str], source_root: str, force: bool) -> dict
                 continue
 
             if ingest_file(source_file, content_path, converter):
+                # Generate metadata for the ingested document
+                generate_metadata(source_file, content_path, source_metadata=None)
                 successes += 1
             else:
                 errors += 1
@@ -146,7 +154,7 @@ def generate_content_path(source_file: Path, source_root: Path) -> Path:
     relative_path = source_file.relative_to(source_root)
 
     # Create path in content directory
-    content_path = Path("content") / relative_path
+    content_path = Path(settings.content_base_dir) / relative_path
 
     # Change extension to .json
     return content_path.with_suffix(".json")
@@ -192,6 +200,94 @@ def ingest_file(
         return False
 
 
+def generate_metadata(
+    source_file: Path,
+    content_path: Path,
+    source_metadata: dict[str, Any] | None = None,
+) -> None:
+    """Generate and save metadata for an ingested document.
+
+    Args:
+        source_file: Path to the original source file
+        content_path: Path to the generated docling JSON file
+        source_metadata: Optional user-supplied metadata (e.g., from retriever)
+    """
+    metadata: dict[str, Any] = {
+        "metadata_version": METADATA_SCHEMA_VERSION,
+    }
+
+    # Auto-detect filesystem info
+    if source_file.exists():
+        stat = source_file.stat()
+
+        # Get path relative to content directory
+        # content_path is like "content/documents/file.json"
+        # We want to store "documents/file.pdf" (with original extension)
+        content_base = Path(settings.content_base_dir)
+        relative_path = content_path.relative_to(content_base)
+
+        filesystem_meta = {
+            "original_path": str(relative_path.with_suffix(source_file.suffix)),
+            "size_bytes": stat.st_size,
+            "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+        }
+
+        # Detect mime type
+        mime, _ = mimetypes.guess_type(source_file)
+        if mime:
+            filesystem_meta["detected_mime"] = mime
+
+        metadata["filesystem"] = filesystem_meta
+
+    # Auto-detect content info (from Docling document)
+    try:
+        with open(content_path) as f:
+            docling_doc = json.load(f)
+
+        content_meta = {}
+        if docling_doc.get("name"):
+            content_meta["title"] = docling_doc["name"]
+        if docling_doc.get("metadata", {}).get("language"):
+            content_meta["language"] = docling_doc["metadata"]["language"]
+
+        if content_meta:
+            metadata["content"] = content_meta
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning(f"Could not read docling document for metadata: {e}")
+
+    # Add user-supplied metadata (e.g., from Codex retriever)
+    if source_metadata:
+        metadata["source"] = source_metadata
+
+    # Add processing info
+    processing_meta = {
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Add docling version if available
+    try:
+        processing_meta["docling_version"] = version("docling")
+    except Exception:
+        pass  # Version not available, skip it (sparse metadata)
+
+    # Calculate content hash of source file (using xxhash for speed)
+    try:
+        processing_meta["source_hash"] = hash_file(source_file)
+    except OSError as e:
+        logger.warning(f"Could not calculate source hash: {e}")
+
+    metadata["processing"] = processing_meta
+
+    # Save metadata (sparse - only non-empty sections)
+    meta_path = content_path.with_suffix(".meta.json")
+    try:
+        with open(meta_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        logger.debug(f"Metadata saved to {meta_path}")
+    except OSError as e:
+        logger.warning(f"Failed to save metadata to {meta_path}: {e}")
+
+
 def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool:
     """Ingest all files from a source path into the content directory.
 
@@ -207,6 +303,10 @@ def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool
 
     if not source_root.exists():
         raise Docs2DBException(f"Source path does not exist: {source_path}")
+
+    # If source is a file, use its parent as the root to maintain directory structure
+    if source_root.is_file():
+        source_root = source_root.parent
 
     logger.info("Starting ingestion", source_path=str(source_root), dry_run=dry_run)
     start = time.time()

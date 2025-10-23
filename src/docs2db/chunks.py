@@ -116,14 +116,15 @@ def source_files(
     if not content.exists():
         raise FileNotFoundError(f"Content directory does not exist: {content_dir}")
 
-    # Ignore chunk and embed files.
+    # Ignore chunk, embed, and metadata files - only process Docling JSON files
     def source_files_iter():
         return (
             f
             for f in content.glob(pattern)
-            if not f.name.endswith(".chunks.json")
+            if f.suffix == ".json"
+            and not f.name.endswith(".chunks.json")
             and not f.name.endswith(".gran.json")
-            and f.suffix == ".json"
+            and not f.name.endswith(".meta.json")
         )
 
     count = sum(1 for _ in source_files_iter())
@@ -491,6 +492,7 @@ class LLMSession:
         """
         self.doc_text = doc_text
         self.model = model
+        self._was_summarized = False  # Track if document was summarized
 
         # Check if document needs summarization
         doc_words = len(doc_text.split())
@@ -544,6 +546,7 @@ class LLMSession:
                 logger.info(
                     f"Summarization complete. Reduced from {doc_tokens} to {final_tokens} tokens"
                 )
+                self._was_summarized = True
 
             # Create final provider with (potentially summarized) doc_text
             self.provider = WatsonXProvider(
@@ -598,6 +601,7 @@ class LLMSession:
                 logger.info(
                     f"Summarization complete. Reduced from {doc_tokens} to {final_tokens} tokens"
                 )
+                self._was_summarized = True
                 temp_provider.close()
 
             # Create messages with (potentially summarized) doc_text
@@ -694,20 +698,54 @@ def generate_chunks_for_document(
     if not chunks_data:
         logger.warning(f"No chunks found in {source_file}")
 
+    processing_metadata = {
+        "chunker": CHUNKING_CONFIG["chunker_class"],
+        "parameters": {
+            "max_tokens": CHUNKING_CONFIG["max_tokens"],
+            "merge_peers": CHUNKING_CONFIG["merge_peers"],
+            "tokenizer_model": CHUNKING_CONFIG["tokenizer_model"],
+        },
+    }
+
+    # Add contextual enrichment metadata if it was used (sparse)
+    if not skip_context:
+        enrichment_metadata: dict[str, Any] = {
+            "model": context_model,
+        }
+
+        # Determine provider type from URLs
+        if watsonx_url:
+            enrichment_metadata["provider"] = "watsonx"
+            enrichment_metadata["endpoint"] = watsonx_url
+        elif openai_url:
+            enrichment_metadata["provider"] = "openai_compatible"
+            enrichment_metadata["endpoint"] = openai_url
+        else:
+            # Default Ollama endpoint
+            enrichment_metadata["provider"] = "openai_compatible"
+            enrichment_metadata["endpoint"] = "http://localhost:11434"
+
+        # Only include document_summarized if it actually happened
+        if (
+            llm_session
+            and hasattr(llm_session, "_was_summarized")
+            and llm_session._was_summarized
+        ):
+            enrichment_metadata["document_summarized"] = True
+
+        # Only include context_limit_override if it was set
+        if context_limit_override:
+            enrichment_metadata["context_limit_override"] = context_limit_override
+
+        processing_metadata["contextual_enrichment"] = enrichment_metadata
+
     output_data = {
         "metadata": {
             "source_file": str(source_file.relative_to(content_dir)),
             "source_hash": hash_file(source_file),
             "database_schema_version": DATABASE_SCHEMA_VERSION,
             "chunking_schema_version": CHUNKING_SCHEMA_VERSION,
-            "processing": {
-                "chunker": CHUNKING_CONFIG["chunker_class"],
-                "parameters": {
-                    "max_tokens": CHUNKING_CONFIG["max_tokens"],
-                    "merge_peers": CHUNKING_CONFIG["merge_peers"],
-                    "tokenizer_model": CHUNKING_CONFIG["tokenizer_model"],
-                },
-            },
+            "processing": processing_metadata,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "chunk_count": len(chunks_data),
         },

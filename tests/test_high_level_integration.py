@@ -128,9 +128,16 @@ class TestHighLevelIntegrationSQL:
                 "Content directory should be created by ingestion"
             )
 
-            # Get the ingested JSON files
-            initial_files = self.get_file_set(content_dir, "**/*.json")
-            assert len(initial_files) > 0, "Should have ingested JSON files"
+            # Get the ingested JSON files (exclude .meta.json, .chunks.json, .gran.json)
+            all_json_files = self.get_file_set(content_dir, "**/*.json")
+            initial_files = {
+                f
+                for f in all_json_files
+                if not f.endswith(".meta.json")
+                and not f.endswith(".chunks.json")
+                and not f.endswith(".gran.json")
+            }
+            assert len(initial_files) > 0, "Should have ingested Docling JSON files"
 
         finally:
             # Restore original working directory
@@ -157,7 +164,11 @@ class TestHighLevelIntegrationSQL:
 
         # Verify no unexpected files were created
         all_files_after_chunking = self.get_file_set(content_dir, "**/*")
-        expected_files_after_chunking = initial_files | expected_chunk_files
+        # Expected files = Docling JSONs + chunks + metadata files created during ingestion
+        meta_files = {f.replace(".json", ".meta.json") for f in initial_files}
+        expected_files_after_chunking = (
+            initial_files | expected_chunk_files | meta_files
+        )
         assert all_files_after_chunking == expected_files_after_chunking, (
             "Unexpected files created during chunking"
         )
@@ -372,6 +383,7 @@ class TestHighLevelIntegrationSQL:
             expected_json_files  # Source documents
             | expected_chunk_files  # Chunk files
             | expected_embed_files  # Embedding files
+            | meta_files  # Metadata files created during ingestion
         )
         assert final_files == expected_final_files, (
             f"Final file set mismatch. Expected {expected_final_files}, got {final_files}"
