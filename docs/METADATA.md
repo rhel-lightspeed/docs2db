@@ -29,16 +29,16 @@ The metadata file is **sparse** - only fields with actual data are included. Emp
   },
 
   "content": {
-    "title": "RHEL 9.4 Administration Guide",
+    "title": "ExampleTech 9.4 Administration Guide",
     "language": "en"
   },
 
   "source": {
     "source_type": "graphql",
-    "source_url": "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9.4/html/system_administrators_guide/index",
+    "source_url": "https://docs.example.com/en/documentation/exampletech/9.4/html/system_administrators_guide/index",
     "source_etag": "abc123def456",
     "retrieved_at": "2025-10-23T10:30:00Z",
-    "retriever": "codex-documentation-v1.0",
+    "retriever": "example-documentation-v1.0",
     "license": "CC-BY-SA-4.0"
   },
 
@@ -82,7 +82,7 @@ Information extracted from the document content:
 - `language`: Document language code (e.g., `"en"`, `"es"`)
 
 ### `source` (User-supplied)
-Provenance information supplied by external tools (e.g., Codex retrievers):
+Provenance information supplied by external tools (e.g., custom source retrievers):
 - `source_type`: Type of source (e.g., `"graphql"`, `"web"`, `"local"`)
 - `source_url`: Original URL where the document was retrieved
 - `source_etag`: ETag or version identifier from the source

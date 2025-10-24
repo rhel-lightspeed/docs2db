@@ -6,18 +6,20 @@ import os
 import time
 from datetime import datetime, timezone
 from importlib.metadata import version
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterator
 
 import psutil
 import structlog
 from docling.document_converter import DocumentConverter
+from docling_core.types.io import DocumentStream
 
 from docs2db.config import settings
 from docs2db.const import METADATA_SCHEMA_VERSION
 from docs2db.exceptions import Docs2DBException
 from docs2db.multiproc import BatchProcessor, setup_worker_logging
-from docs2db.utils import hash_file
+from docs2db.utils import hash_bytes, hash_file
 
 logger = structlog.get_logger(__name__)
 
@@ -79,8 +81,6 @@ def ingest_batch(source_files: list[str], source_root: str, force: bool) -> dict
                 continue
 
             if ingest_file(source_file, content_path, converter):
-                # Generate metadata for the ingested document
-                generate_metadata(source_file, content_path, source_metadata=None)
                 successes += 1
             else:
                 errors += 1
@@ -181,18 +181,22 @@ def ingest_file(
         # Create the output directory
         content_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert the document
-        result = converter.convert(source_file, raises_on_error=True)
-        document = result.document
-
-        # Save as JSON
-        document.save_as_json(content_path)
+        result = converter.convert(source_file)
+        result.document.save_as_json(content_path)
 
         logger.info(
             "Successfully converted file",
             source=str(source_file),
             target=str(content_path),
         )
+
+        generate_metadata(
+            source_hash=hash_file(source_file),
+            content_path=content_path,
+            source_file=source_file,
+            source_metadata=None,
+        )
+
         return True
 
     except Exception as e:
@@ -200,39 +204,104 @@ def ingest_file(
         return False
 
 
-def generate_metadata(
-    source_file: Path,
+def ingest_from_content(
+    content: str | bytes,
     content_path: Path,
+    stream_name: str | None = None,
     source_metadata: dict[str, Any] | None = None,
-) -> None:
-    """Generate and save metadata for an ingested document.
+    content_encoding: str = "utf-8",
+) -> bool:
+    """Convert in-memory content to Docling JSON and generate metadata.
+
+    For external tools to ingest content directly without saving
+    intermediate files. Converts content to Docling JSON and
+    generates metadata.
 
     Args:
-        source_file: Path to the original source file
+        content: The content to convert (HTML, markdown, etc).
+        content_path: Path to store JSON (relative to content_base_dir).
+        stream_name: If None, uses content_path filename.
+        source_metadata: Source metadata (URL, etag, license, etc).
+        content_encoding: Defaults to "utf-8".
+
+    Returns:
+        bool: True if successful, False otherwise
+
+    """
+    try:
+        if stream_name is None:
+            stream_name = content_path.name
+
+        logger.info("Converting content", target=str(content_path), stream=stream_name)
+
+        # Convert string content to bytes if needed
+        if isinstance(content, str):
+            content = content.encode(content_encoding)
+
+        # Create document stream and convert
+        json_path = content_path.with_suffix(".json")
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+
+        stream = DocumentStream(name=stream_name, stream=BytesIO(content))
+
+        converter = DocumentConverter()
+        result = converter.convert(stream)
+        document = result.document
+        document.save_as_json(json_path)
+
+        logger.info("Successfully converted content", target=str(json_path))
+
+        source_hash = hash_bytes(content)
+
+        generate_metadata(
+            source_hash=source_hash,
+            content_path=json_path,
+            source_file=None,  # No source file for in-memory content
+            source_metadata=source_metadata,
+        )
+
+        return True
+
+    except Exception as e:
+        logger.error(
+            "Failed to convert content", target=str(content_path), error=str(e)
+        )
+        return False
+
+
+def generate_metadata(
+    source_hash: str,
+    content_path: Path,
+    source_file: Path | None = None,
+    source_metadata: dict[str, Any] | None = None,
+) -> None:
+    """Internal: Generate and save metadata for an ingested document.
+
+    Args:
+        source_hash: xxhash64 of source (format: "xxh64:hexdigest")
         content_path: Path to the generated docling JSON file
-        source_metadata: Optional user-supplied metadata (e.g., from retriever)
+        source_file: Optional path to original source file
+        source_metadata: Optional user-supplied metadata
     """
     metadata: dict[str, Any] = {
         "metadata_version": METADATA_SCHEMA_VERSION,
+        "processing": {
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+            "source_hash": source_hash,
+            "docling_version": version("docling"),
+        },
     }
 
-    # Auto-detect filesystem info
-    if source_file.exists():
-        stat = source_file.stat()
-
-        # Get path relative to content directory
-        # content_path is like "content/documents/file.json"
-        # We want to store "documents/file.pdf" (with original extension)
+    if source_file and source_file.exists():
         content_base = Path(settings.content_base_dir)
         relative_path = content_path.relative_to(content_base)
 
+        stat = source_file.stat()
         filesystem_meta = {
             "original_path": str(relative_path.with_suffix(source_file.suffix)),
             "size_bytes": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         }
-
-        # Detect mime type
         mime, _ = mimetypes.guess_type(source_file)
         if mime:
             filesystem_meta["detected_mime"] = mime
@@ -255,28 +324,8 @@ def generate_metadata(
     except (OSError, json.JSONDecodeError) as e:
         logger.warning(f"Could not read docling document for metadata: {e}")
 
-    # Add user-supplied metadata (e.g., from Codex retriever)
     if source_metadata:
         metadata["source"] = source_metadata
-
-    # Add processing info
-    processing_meta = {
-        "ingested_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    # Add docling version if available
-    try:
-        processing_meta["docling_version"] = version("docling")
-    except Exception:
-        pass  # Version not available, skip it (sparse metadata)
-
-    # Calculate content hash of source file (using xxhash for speed)
-    try:
-        processing_meta["source_hash"] = hash_file(source_file)
-    except OSError as e:
-        logger.warning(f"Could not calculate source hash: {e}")
-
-    metadata["processing"] = processing_meta
 
     # Save metadata (sparse - only non-empty sections)
     meta_path = content_path.with_suffix(".meta.json")

@@ -24,6 +24,13 @@ def hash_file(file_path: Path) -> str:
     return f"xxh64:{hash_obj.hexdigest()}"
 
 
+def hash_bytes(content_bytes: bytes) -> str:
+    """Generate xxhash of bytes."""
+    hash_obj = xxhash.xxh64()
+    hash_obj.update(content_bytes)
+    return f"xxh64:{hash_obj.hexdigest()}"
+
+
 def ensure_model_available(model_id: str) -> None:
     """
     Ensure a model is available locally, downloading if necessary.
