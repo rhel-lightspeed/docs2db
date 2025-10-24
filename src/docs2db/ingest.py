@@ -161,7 +161,10 @@ def generate_content_path(source_file: Path, source_root: Path) -> Path:
 
 
 def ingest_file(
-    source_file: Path, content_path: Path, converter: DocumentConverter
+    source_file: Path,
+    content_path: Path,
+    converter: DocumentConverter,
+    source_metadata: dict[str, Any] | None = None,
 ) -> bool:
     """Convert a single file to docling JSON format.
 
@@ -169,6 +172,7 @@ def ingest_file(
         source_file: Path to the source file to convert
         content_path: Path where the JSON file should be stored
         converter: DocumentConverter instance to use for conversion
+        source_metadata: Optional metadata about the source
 
     Returns:
         bool: True if successful, False otherwise
@@ -194,7 +198,7 @@ def ingest_file(
             source_hash=hash_file(source_file),
             content_path=content_path,
             source_file=source_file,
-            source_metadata=None,
+            source_metadata=source_metadata,
         )
 
         return True
