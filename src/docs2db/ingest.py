@@ -23,6 +23,21 @@ from docs2db.utils import hash_bytes, hash_file
 
 logger = structlog.get_logger(__name__)
 
+# Module-level singleton converter for efficiency
+_converter: DocumentConverter | None = None
+
+
+def _get_converter() -> DocumentConverter:
+    """Get or create the DocumentConverter singleton.
+
+    Returns:
+        DocumentConverter: The shared converter instance
+    """
+    global _converter
+    if _converter is None:
+        _converter = DocumentConverter()
+    return _converter
+
 
 def is_ingestion_stale(content_file: Path, source_file: Path) -> bool:
     """Check if content file is stale compared to source.
@@ -65,7 +80,6 @@ def ingest_batch(source_files: list[str], source_root: str, force: bool) -> dict
     error_data = []
     last_file = ""
 
-    converter = DocumentConverter()
     source_root_path = Path(source_root)
 
     for file_str in source_files:
@@ -80,7 +94,7 @@ def ingest_batch(source_files: list[str], source_root: str, force: bool) -> dict
                 successes += 1
                 continue
 
-            if ingest_file(source_file, content_path, converter):
+            if ingest_file(source_file, content_path):
                 successes += 1
             else:
                 errors += 1
@@ -163,7 +177,6 @@ def generate_content_path(source_file: Path, source_root: Path) -> Path:
 def ingest_file(
     source_file: Path,
     content_path: Path,
-    converter: DocumentConverter,
     source_metadata: dict[str, Any] | None = None,
 ) -> bool:
     """Convert a single file to docling JSON format.
@@ -171,12 +184,13 @@ def ingest_file(
     Args:
         source_file: Path to the source file to convert
         content_path: Path where the JSON file should be stored
-        converter: DocumentConverter instance to use for conversion
         source_metadata: Optional metadata about the source
 
     Returns:
         bool: True if successful, False otherwise
     """
+    converter = _get_converter()
+
     try:
         logger.info(
             "Converting file", source=str(source_file), target=str(content_path)
@@ -248,7 +262,7 @@ def ingest_from_content(
 
         stream = DocumentStream(name=stream_name, stream=BytesIO(content))
 
-        converter = DocumentConverter()
+        converter = _get_converter()
         result = converter.convert(stream)
         document = result.document
         document.save_as_json(json_path)
