@@ -323,8 +323,19 @@ class WatsonXProvider(LLMProvider):
             model: Model identifier
             doc_text: Full document text for context
         """
-        from ibm_watsonx_ai import APIClient, Credentials
-        from ibm_watsonx_ai.foundation_models import ModelInference
+        try:
+            from ibm_watsonx_ai import (  # type: ignore[import-untyped]
+                APIClient,
+                Credentials,
+            )
+            from ibm_watsonx_ai.foundation_models import (  # type: ignore[import-untyped]
+                ModelInference,
+            )
+        except ImportError as e:
+            raise ImportError(
+                "IBM WatsonX AI SDK is required for WatsonX provider. "
+                "Install it with: uv sync --group watsonx"
+            ) from e
 
         self.model = model
         self.doc_text = doc_text

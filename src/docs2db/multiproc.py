@@ -415,7 +415,7 @@ class BatchProcessor:
     def _display_errors(self):
         """Display any errors that occurred during processing."""
         if self.error_data:
-            logging.error("\n[bold red]Errors during processing:[/bold red]")
+            logging.error("\nErrors during processing:")
             for error in self.error_data:
                 logging.error(f"{error['error']}\n{error['file']}\n")
 
