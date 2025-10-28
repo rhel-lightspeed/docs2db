@@ -1,4 +1,4 @@
-.PHONY: test test-ci lint typecheck db-up db-down db-logs db-status db-drop db-dump db-restore db-up-test db-down-test cleanup-workers docs2db list all
+.PHONY: test test-ci lint typecheck db-up db-down db-logs db-status db-drop db-dump db-restore db-up-test db-down-test docs2db list all
 
 # Default source directory for docs2db target
 SOURCE ?= tests/fixtures/input
@@ -39,9 +39,6 @@ db-dump:
 
 db-restore:
 	uv run docs2db db-restore $(FILE)
-
-cleanup-workers:
-	uv run docs2db cleanup-workers
 
 docs2db:
 	@echo "Starting Docs2DB..."
@@ -94,6 +91,5 @@ list:
 	@echo "  db-restore   - Restore database from dump file"
 	@echo "                 Usage: make db-restore FILE=/path/to/dump.sql"
 	@echo "  db-drop      - Stop database and remove data"
-	@echo "  cleanup-workers - Clean up any orphaned worker processes"
 
 all: lint test typecheck
