@@ -8,8 +8,8 @@ services:
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: secrete
-      POSTGRES_DB: ragdb  # If you change this, change db-drop in makefile.
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ragdb
     ports:
       - 5432:5432
     volumes:
@@ -34,25 +34,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-  adminer:
-    container_name: docs2db-adminer
-    profiles: ["prod", "tools"]
-    image: docker.io/library/adminer:latest
-    restart: always
-    ports:
-      - 8080:8080
-
-  pgadmin:
-    container_name: docs2db-pgadmin
-    profiles: ["prod", "tools"]
-    image: docker.io/dpage/pgadmin4:latest
-    restart: always
-    ports:
-      - 5050:80
-    environment:
-      PGADMIN_DEFAULT_EMAIL: major@mhtx.net
-      PGADMIN_DEFAULT_PASSWORD: secrete
 
 volumes:
   pgdata:

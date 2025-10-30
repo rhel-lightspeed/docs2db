@@ -1,192 +1,206 @@
 # Docs2DB
 
-Content focused RAG system.
+Build a RAG database from documents. Docs2DB processes documents into chunks and embeddings, loads them into PostgreSQL with pgvector, and produces portable SQL dumps.
 
-Docs2DB builds a RAG database from a directory of content files. It:
-- Retrieves data from a given location on disk.
-- Stores source data in working folders in Docling format.
-- Processes data into chunks and embeddings (Granite, others are possible)
-- Loads data in a PostgresDB and produces pg_dump files (Milvus is possible)
-- Serve data with https://github.com/rhel-lightspeed/docs2db-api
+**What it does:**
+- Ingests documents (PDF, DOCX, XLSX, HTML, MD, CSV, etc.) using Docling
+- Generates contextual chunks with LLM assistance
+- Creates embeddings (Granite 30M by default)
+- Loads into PostgreSQL with pgvector
+- Produces portable `ragdb_dump.sql` files
+
+**What it's for:**
+- Creating databases for RAG systems that use [docs2db-api](https://github.com/rhel-lightspeed/docs2db-api)
+
+## Installation
+
+```bash
+uv tool install docs2db
+```
+
+**Requirements:** Docker or Podman (for database management)
 
 ## Quickstart
 
-`make docs2db SOURCE=/Users/me/Documents/my-pdfs`
-
-This will create a `ragdb_dump.sql` you may use for RAG in Postrgesql.
-
-Test your rag with:
-- `make db-up` (restarts the db you just created, it's still there)
-- `uv run python ./scripts/rag_demo_client.py --interactive`
-
-## Ingestion
-
-The ingestion process populates `/content` with Docling doc files in json format.
-
-Ingest documents with `uv run docs2db ingest path/to/source/files`
-
-Source files can be in a directory structure, it will be recreated in the `/content` directory that gets created. Source files may be any type that Docling
-can ingest: `.html`, `.htm`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.md`, `.csv`
-
-## Processing
-
-Before a database can be made or RAG can be served, the source documents need embeddings.
-
-The `/content` directory holds Docling docs in .json format. In addition, it holds chunks and embeddings files alongside each of those doc files.
-- `uv run docs2db chunk`
-    - creates a .chunks.json file for each source file
-- `uv run docs2db embed`
-    - creates a .gran.json granite embedding file for each of these chunks files
-- `uv run docs2db audit`
-    - reports the number of source, chunk and embedding files
-    - logs warnings
-
-### Chunking Options
-
-**Configuration Precedence:**
-1. CLI flags (highest priority)
-2. Environment variables
-3. `.env` file (via Pydantic)
-4. Default values (lowest priority)
-
-See `.env.example` for all available settings.
-
-**Skip contextual generation (faster):**
+**One command:**
 ```bash
-uv run docs2db chunk --skip-context
-# Or via .env: LLM_SKIP_CONTEXT=true
+docs2db pipeline /path/to/your/documents
 ```
 
-**Use a faster local model (Ollama):**
+This starts a database, processes everything, and creates `ragdb_dump.sql`.
+
+**Next steps:** See [docs2db-api](https://github.com/rhel-lightspeed/docs2db-api) to use your database for RAG search. Follow one of its demos to use it with Llama Stack or integrate it into your agent.
+
+## Database Configuration
+
+**Configuration precedence (highest to lowest):**
+1. CLI arguments: `--host`, `--port`, `--db`, `--user`, `--password`
+2. Environment variables: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+3. `DATABASE_URL`: `postgresql://user:pass@host:port/database`
+4. `postgres-compose.yml` in current directory
+5. Defaults: `localhost:5432`, user=`postgres`, password=`postgres`, db=`ragdb`
+
+**Examples:**
+
 ```bash
-uv run docs2db chunk --context-model qwen2.5:3b-instruct
-# Or via .env: LLM_CONTEXT_MODEL=qwen2.5:3b-instruct
+# Use defaults (docs2db db-start creates everything)
+docs2db load
+
+# Environment variables
+export POSTGRES_HOST=prod.example.com
+export POSTGRES_DB=mydb
+docs2db load
+
+# DATABASE_URL (cloud providers)
+export DATABASE_URL="postgresql://user:pass@host:5432/db"
+docs2db load
+
+# CLI arguments
+docs2db load --host localhost --db mydb
 ```
 
-**Use OpenAI:**
+**Note:** Don't mix `DATABASE_URL` with individual `POSTGRES_*` variables.
+
+## Commands
+
+### Database Lifecycle
+
 ```bash
-export OPENAI_API_KEY="sk-..."
-uv run docs2db chunk --openai-url "https://api.openai.com" --context-model "gpt-4o-mini"
-# Or via .env:
-#   LLM_OPENAI_URL=https://api.openai.com
-#   LLM_CONTEXT_MODEL=gpt-4o-mini
+docs2db db-start      # Start PostgreSQL (Docker/Podman)
+docs2db db-stop       # Stop PostgreSQL
+docs2db db-logs       # View logs (-f to follow)
+docs2db db-destroy    # Delete all data (prompts for confirmation)
+docs2db db-status     # Check connection and stats
 ```
 
-**Use IBM WatsonX:**
+### Pipeline
+
 ```bash
-export WATSONX_API_KEY="your-api-key"
-export WATSONX_PROJECT_ID="your-project-id"
-uv run docs2db chunk --watsonx-url "https://us-south.ml.cloud.ibm.com" --context-model "ibm/granite-3-8b-instruct"
-# Or via .env:
-#   WATSONX_API_KEY=your-api-key
-#   WATSONX_PROJECT_ID=your-project-id
-#   LLM_WATSONX_URL=https://us-south.ml.cloud.ibm.com
-#   LLM_CONTEXT_MODEL=ibm/granite-3-8b-instruct
+docs2db pipeline <path>              # Complete workflow
+docs2db pipeline <path> \
+  --output-file my-rag.sql \         # Custom output
+  --skip-context \                   # Skip contextual chunks (faster)
+  --model e5-small-v2                # Different embedding model
 ```
 
-**Override model context limit (for map-reduce summarization):**
+### Individual Steps
+
+These are the same steps `pipeline` runs.
+
 ```bash
-uv run docs2db chunk --context-limit 65536
-# Or via .env: LLM_CONTEXT_LIMIT_OVERRIDE=65536
+docs2db ingest <path>                # Ingest documents
+docs2db chunk                        # Generate chunks
+docs2db embed                        # Generate embeddings
+docs2db load                         # Load into database
+docs2db db-dump                      # Create SQL dump
+docs2db db-restore <file>            # Restore from dump
+docs2db audit                        # Check content directory
 ```
 
-**Process specific files:**
+Each processing step (`ingest`, `chunk`, `embed`) creates files in `docs2db_content/` that the next step reads.
+
+## Processing Options
+
+### Chunking
+
 ```bash
-uv run docs2db chunk --pattern "documents/**/*.json"
-# Or via .env: CHUNKING_PATTERN=documents/**/*.json
+# Fast (skip contextual generation)
+docs2db chunk --skip-context
+
+# Custom LLM provider
+docs2db chunk --context-model qwen2.5:7b-instruct              # Ollama
+docs2db chunk --openai-url https://api.openai.com \           # OpenAI
+  --context-model gpt-4o-mini
+docs2db chunk --watsonx-url https://us-south.ml.cloud.ibm.com # WatsonX
+
+# Patterns and directories
+docs2db chunk --pattern "docs/**/*.json"
+docs2db chunk --content-dir my-content
 ```
 
-**Use a different content directory:**
+Configuration via environment variables or `.env` file also supported. Run `docs2db chunk --help` for all options.
+
+### Embedding
+
 ```bash
-uv run docs2db chunk --content-dir my-content
-# Or via .env: CONTENT_BASE_DIR=my-content
+# Different model
+docs2db embed --model granite-30m-english
+
+# Patterns and directories
+docs2db embed --pattern "docs/**/*.chunks.json"
+docs2db embed --content-dir my-content
 ```
 
-Use `uv run docs2db chunk --help` or `uv run docs2db embed --help` to learn more.
+Run `docs2db embed --help` for all options.
 
-### Embedding Options
+## Content Directory
 
-**Configuration Precedence** (same as chunking):
-1. CLI flags (highest priority)
-2. Environment variables
-3. `.env` file (via Pydantic)
-4. Default values (lowest priority)
+The content directory (default: `docs2db_content/`) stores:
+- Ingested documents in Docling JSON format
+- `.chunks.json` files with text chunks
+- `.gran.json` files with embeddings
 
-**Use a different embedding model:**
+**Important:** Commit this directory to version control. It contains expensive preprocessing that can be reused across updates. Docs2DB automatically skips files that haven't changed.
+
+## RAG Features
+
+- **Contextual chunks** - LLM-generated context for each chunk ([Anthropic's approach](https://www.anthropic.com/engineering/contextual-retrieval))
+- **Vector embeddings** - Multiple models: granite-30m, e5-small-v2, slate-125m, noinstruct-small
+- **Full-text search** - PostgreSQL tsvector with GIN indexing for BM25
+- **Vector similarity** - pgvector extension with HNSW indexes
+- **Schema versioning** - Track metadata and schema changes
+- **Portable dumps** - Self-contained SQL files that work anywhere with [docs2db-api](https://github.com/rhel-lightspeed/docs2db-api)
+- **Incremental processing** - Automatically skips unchanged files
+
+## Troubleshooting
+
+### "Neither Docker nor Podman found"
+Install Docker (https://docs.docker.com/get-docker/) or Podman (https://podman.io/getting-started/installation)
+
+### "Database connection refused"
 ```bash
-uv run docs2db embed --model granite-30m-english
-# Or via .env: EMBEDDING_MODEL=granite-30m-english
+docs2db db-start      # Start the database
+docs2db db-status     # Check connection
 ```
 
-**Process specific files:**
+### "Module not found" errors
+Use `uv tool install docs2db`
+
+## Using as a Library
+
 ```bash
-uv run docs2db embed --pattern "documents/**/*.chunks.json"
-# Or via .env: EMBEDDING_PATTERN=documents/**/*.chunks.json
+uv add docs2db
 ```
 
-**Use a different content directory:**
-```bash
-uv run docs2db embed --content-dir my-content
-# Or via .env: CONTENT_BASE_DIR=my-content
+```python
+from docs2db import ingest_file, ingest_from_content
+
+# Your code here
 ```
 
-## Database
+See `docs2db --help` for the full Python API.
 
-Docs2DB uses PostgreSQL with the pgvector extension for storing documents, chunks, and embeddings.
+## Development
 
-- `make db-up`
-    - creates the database if it doesn't exist
-    - uses existing version of the database if it exists in Docker volumes
+```bash
+git clone https://github.com/rhel-lightspeed/docs2db
+cd docs2db
+uv sync
+pre-commit install
 
-- `make db-down`
-    - stops the container
-    - data persists across container restarts
+# Run tests
+make test
 
-- `make db-drop`
-    - drops the database and all contents
-    - use when you need a clean slate
+# Run all checks
+pre-commit run --all-files
+```
 
-- `make load` (or `uv run docs2db load`)
-    - load all documents, chunks and embeddings into database
-    - initilize database schema
-    - load pgvector
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-- `make db-status` (or `uv run docs2db db-status`)
-    - report state of the database
-        - running
-        - initialized
-        - contains data
-        - detects configuration errors
+## Serving Your Database
 
-- `make db-dump` (or `uv run docs2db db-dump`)
-    - make `ragdb_dump.sql` from the current Postgresql database
+Use [docs2db-api](https://github.com/rhel-lightspeed/docs2db-api) to serve your RAG database with a REST API.
 
-## Serving
+## License
 
-Use a Docs2DB database for RAG in your LLM application with https://github.com/rhel-lightspeed/docs2db-api
-
-## Testing
-
-Try out your RAG database with the demo client
-- `uv run python scripts/rag_demo_client.py --query "wind energy" --limit 3`
-- `uv run python scripts/rag_demo_client.py --interactive`
-
-Automated testing requires its own postgres database, start one with `make db-up-test` and run tests with `make test` (or `uv run docs2db test`)
-
-## RAG Algorithm
-
-Docs2DB implements modern retrieval techniques:
-
-- Contextual chunks with LLM-generated context situating each chunk within its document (following [Anthropic's Contextual Retrieval](https://www.anthropic.com/engineering/contextual-retrieval))
-- Map-reduce summarization for documents exceeding model context windows
-- Hybrid search combining BM25 (lexical) and vector embeddings (semantic)
-- Reciprocal Rank Fusion (RRF) for result combination
-- PostgreSQL full-text search with tsvector and GIN indexing
-- pgvector for similarity search
-- Granite embedding models (30M parameters, 384 dimensions)
-- Normalized model metadata storage
-- Schema versioning and change tracking
-
-## Advice
-
-- Save your working directory (/content) and re-use it when updating because chunking and embedding take a long time. They will only chunk and embed files that have changed since their current chunks and embeddings were generated.
+See [LICENSE](LICENSE) for details.

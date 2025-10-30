@@ -1,6 +1,7 @@
 """RAG Pipeline Tools for docs2db"""
 
 import asyncio
+from pathlib import Path
 from typing import Annotated, Optional
 
 import structlog
@@ -15,6 +16,12 @@ from docs2db.database import (
     generate_manifest,
     load_documents,
     restore_database,
+)
+from docs2db.db_lifecycle import (
+    destroy_database,
+    get_database_logs,
+    start_database,
+    stop_database,
 )
 from docs2db.embed import generate_embeddings
 from docs2db.exceptions import Docs2DBException
@@ -433,3 +440,239 @@ def cleanup_workers() -> None:
     except Docs2DBException as e:
         logger.error(str(e))
         raise typer.Exit(1)
+
+
+@app.command(name="db-start")
+def db_start(
+    profile: Annotated[
+        str, typer.Option(help="Docker compose profile to use")
+    ] = "prod",
+) -> None:
+    """Start PostgreSQL database using Docker/Podman.
+
+    Creates a default postgres-compose.yml if one doesn't exist.
+    Requires Docker or Podman to be installed.
+    """
+    try:
+        if not start_database(profile=profile):
+            raise typer.Exit(1)
+    except Docs2DBException as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+
+@app.command(name="db-stop")
+def db_stop(
+    profile: Annotated[
+        str, typer.Option(help="Docker compose profile to use")
+    ] = "prod",
+) -> None:
+    """Stop PostgreSQL database (data is preserved).
+
+    The database can be restarted with 'docs2db db-start'.
+    """
+    try:
+        if not stop_database(profile=profile):
+            raise typer.Exit(1)
+    except Docs2DBException as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+
+@app.command(name="db-destroy")
+def db_destroy(
+    profile: Annotated[
+        str, typer.Option(help="Docker compose profile to use")
+    ] = "prod",
+    force: Annotated[bool, typer.Option(help="Skip confirmation prompt")] = False,
+) -> None:
+    """Stop database and remove all data (WARNING: destructive!).
+
+    This will DELETE all database data. Use with caution.
+    """
+    if not force:
+        confirm = typer.confirm(
+            "⚠️  This will DELETE all database data. Are you sure?",
+            default=False,
+        )
+        if not confirm:
+            logger.info("Operation cancelled")
+            raise typer.Exit(0)
+
+    try:
+        if not destroy_database(profile=profile):
+            raise typer.Exit(1)
+    except Docs2DBException as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+
+@app.command(name="db-logs")
+def db_logs(
+    follow: Annotated[
+        bool, typer.Option("--follow", "-f", help="Follow logs in real-time")
+    ] = False,
+) -> None:
+    """View PostgreSQL database logs.
+
+    Use --follow to continuously stream logs (like tail -f).
+    """
+    try:
+        if not get_database_logs(follow=follow):
+            raise typer.Exit(1)
+    except Docs2DBException as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+
+@app.command()
+def pipeline(
+    source_path: Annotated[
+        str, typer.Argument(help="Path to source directory or file to process")
+    ],
+    content_dir: Annotated[
+        str, typer.Option(help="Content directory for intermediate files")
+    ] = "docs2db_content",
+    model: Annotated[
+        str, typer.Option(help="Embedding model to use")
+    ] = "granite-30m-english",
+    skip_context: Annotated[
+        bool, typer.Option(help="Skip LLM contextual chunk generation (faster)")
+    ] = False,
+    output_file: Annotated[
+        str, typer.Option(help="Output SQL dump file")
+    ] = "ragdb_dump.sql",
+) -> None:
+    """Run complete docs2db pipeline: start DB → ingest → chunk → embed → load → dump → stop.
+
+    This is equivalent to running all steps in sequence:
+      1. docs2db db-start
+      2. docs2db ingest <source_path>
+      3. docs2db chunk
+      4. docs2db embed
+      5. docs2db load
+      6. docs2db db-dump
+      7. docs2db db-stop
+
+    The database is automatically cleaned up after completion.
+
+    Example:
+      docs2db pipeline /path/to/pdfs
+      docs2db pipeline ~/Documents --output-file my-rag.sql
+    """
+    source = Path(source_path)
+    if not source.exists():
+        logger.error(f"Source path does not exist: {source_path}")
+        raise typer.Exit(1)
+
+    logger.info("=" * 60)
+    logger.info("Starting docs2db pipeline")
+    logger.info(f"Source: {source_path}")
+    logger.info(f"Content directory: {content_dir}")
+    logger.info(f"Embedding model: {model}")
+    logger.info("=" * 60)
+
+    try:
+        # Step 1: Start database
+        logger.info("\n[1/7] Starting database...")
+        if not start_database():
+            raise Docs2DBException("Failed to start database")
+
+        # Step 2: Ingest
+        logger.info("\n[2/7] Ingesting documents...")
+        if not ingest_command(source_path=source_path, dry_run=False, force=False):
+            raise Docs2DBException("Failed to ingest documents")
+
+        # Step 3: Chunk
+        logger.info("\n[3/7] Generating chunks...")
+        if not generate_chunks(
+            content_dir=content_dir,
+            pattern="**/*.json",
+            force=False,
+            dry_run=False,
+            skip_context=skip_context,
+            context_model=settings.llm_context_model,
+            openai_url=None,
+            watsonx_url=None,
+            context_limit_override=None,
+        ):
+            raise Docs2DBException("Failed to generate chunks")
+
+        # Step 4: Embed
+        logger.info("\n[4/7] Generating embeddings...")
+        if not generate_embeddings(
+            content_dir=content_dir,
+            model_name=model,
+            pattern="**/*.chunks.json",
+            force=False,
+            dry_run=False,
+        ):
+            raise Docs2DBException("Failed to generate embeddings")
+
+        # Step 5: Load
+        logger.info("\n[5/7] Loading into database...")
+        if not asyncio.run(
+            load_documents(
+                content_dir=content_dir,
+                model_name=model,
+                pattern="**/*.json",
+                host=None,
+                port=None,
+                db=None,
+                user=None,
+                password=None,
+                force=False,
+                batch_size=100,
+                username="",
+                title=None,
+                description=None,
+                note=f"Created by pipeline from {source_path}",
+            )
+        ):
+            raise Docs2DBException("Failed to load into database")
+
+        # Step 6: Dump
+        logger.info("\n[6/7] Creating database dump...")
+        if not dump_database(
+            output_file=output_file,
+            host=None,
+            port=None,
+            db=None,
+            user=None,
+            password=None,
+            verbose=False,
+        ):
+            raise Docs2DBException("Failed to create database dump")
+
+        # Step 7: Stop database
+        logger.info("\n[7/7] Stopping database...")
+        if not stop_database():
+            logger.warning("Failed to stop database (not fatal)")
+
+        logger.info("\n" + "=" * 60)
+        logger.info("Pipeline completed successfully!")
+        logger.info(f"Database dump created: {output_file}")
+        logger.info("=" * 60)
+
+    except Docs2DBException as e:
+        logger.error(f"\nPipeline failed: {e}")
+        logger.info("\nCleaning up...")
+
+        # Try to stop database on failure
+        try:
+            stop_database()
+        except Exception:
+            pass  # Ignore cleanup errors
+
+        raise typer.Exit(1)
+    except KeyboardInterrupt:
+        logger.warning("\nPipeline interrupted by user")
+        logger.info("Cleaning up...")
+
+        # Try to stop database on interrupt
+        try:
+            stop_database()
+        except Exception:
+            pass  # Ignore cleanup errors
+
+        raise typer.Exit(130)  # Standard exit code for SIGINT

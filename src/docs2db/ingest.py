@@ -26,6 +26,37 @@ logger = structlog.get_logger(__name__)
 # Module-level singleton converter for efficiency
 _converter: DocumentConverter | None = None
 
+# README content for the content directory
+_CONTENT_DIR_README = """# About this folder
+
+This folder was created by `docs2db` to store processed content.
+
+## What's inside
+
+- **`.json` files** - Documents converted to Docling JSON format
+- **`.chunks.json` files** - Chunked documents ready for embedding
+- **`.gran.json` files** - Granite embedding vectors
+- **`.meta.json` files** - Metadata about source documents
+
+## Important
+
+**Regenerating this content is expensive!** Processing includes:
+- Document conversion (Docling)
+- AI-powered contextual chunking (requires LLM)
+- Embedding generation (requires embedding model)
+
+### Recommendations
+
+1. **Keep this folder** - Save it when updating your content pipeline
+2. **Commit to version control** - Track changes and share across team members and CI pipelines
+3. **Reuse it** - `docs2db` automatically skips unchanged files, making updates fast
+
+### Structure
+
+The directory structure mirrors your source content, with each file converted to
+the Docling JSON format plus associated processing artifacts.
+"""
+
 
 def _get_converter() -> DocumentConverter:
     """Get or create the DocumentConverter singleton.
@@ -37,6 +68,31 @@ def _get_converter() -> DocumentConverter:
     if _converter is None:
         _converter = DocumentConverter()
     return _converter
+
+
+def ensure_content_dir_readme(content_base_dir: str | Path | None = None) -> None:
+    """Ensure the content directory has a README explaining its purpose.
+
+    Creates a README.md file in the content directory if it doesn't exist.
+    The README explains what the folder contains and recommends keeping it.
+
+    Args:
+        content_base_dir: Base directory for content. If None, uses settings.content_base_dir
+    """
+    if content_base_dir is None:
+        content_base_dir = settings.content_base_dir
+
+    content_dir = Path(content_base_dir)
+    readme_path = content_dir / "README.md"
+
+    # Only create if it doesn't exist (don't overwrite user modifications)
+    if not readme_path.exists():
+        try:
+            content_dir.mkdir(parents=True, exist_ok=True)
+            readme_path.write_text(_CONTENT_DIR_README.strip() + "\n")
+            logger.debug(f"Created content directory README at {readme_path}")
+        except OSError as e:
+            logger.warning(f"Could not create content directory README: {e}")
 
 
 def is_ingestion_stale(content_file: Path, source_file: Path) -> bool:
@@ -196,8 +252,9 @@ def ingest_file(
             "Converting file", source=str(source_file), target=str(content_path)
         )
 
-        # Create the output directory
+        # Create the output directory and ensure README exists
         content_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_content_dir_readme(content_path.parts[0] if content_path.parts else None)
 
         result = converter.convert(source_file)
         result.document.save_as_json(content_path)
@@ -259,6 +316,7 @@ def ingest_from_content(
         # Create document stream and convert
         json_path = content_path.with_suffix(".json")
         json_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_content_dir_readme(json_path.parts[0] if json_path.parts else None)
 
         stream = DocumentStream(name=stream_name, stream=BytesIO(content))
 
@@ -311,8 +369,20 @@ def generate_metadata(
     }
 
     if source_file and source_file.exists():
-        content_base = Path(settings.content_base_dir)
-        relative_path = content_path.relative_to(content_base)
+        # Try to compute relative path, but handle external callers
+        # that may use different content_base_dir values
+        try:
+            content_base = Path(settings.content_base_dir)
+            relative_path = content_path.relative_to(content_base)
+        except ValueError:
+            # If content_path is not relative to settings.content_base_dir,
+            # extract the content base from the path itself (use first directory)
+            if content_path.is_absolute():
+                relative_path = content_path
+            else:
+                # Path like "content/docs/...", use everything after first component
+                parts = content_path.parts
+                relative_path = Path(*parts[1:]) if len(parts) > 1 else content_path
 
         stat = source_file.stat()
         filesystem_meta = {
@@ -384,6 +454,9 @@ def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool
         return True
 
     logger.info("Found files to process", count=file_count)
+
+    # Ensure content directory README exists
+    ensure_content_dir_readme()
 
     if dry_run:
         logger.info("Dry run mode - would process:")

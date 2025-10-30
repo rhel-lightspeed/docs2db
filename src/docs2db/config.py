@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Base directory for storing content
-    content_base_dir: str = "content"
+    content_base_dir: str = "docs2db_content"
 
     # LLM Provider Settings for contextual chunking
     llm_skip_context: bool = False

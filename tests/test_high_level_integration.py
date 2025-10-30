@@ -110,9 +110,9 @@ class TestHighLevelIntegrationSQL:
 
         # Set up source files and workspace
         test_fixtures_dir = Path(__file__).parent / "fixtures" / "input"
-        content_dir = test_workspace_dir / "content"
+        content_dir = test_workspace_dir / "docs2db_content"
 
-        # Change to workspace directory so ingest creates content/ in the right place
+        # Change to workspace directory so ingest creates docs2db_content/ in the right place
         original_cwd = Path.cwd()
         import os
 
@@ -164,13 +164,17 @@ class TestHighLevelIntegrationSQL:
 
         # Verify no unexpected files were created
         all_files_after_chunking = self.get_file_set(content_dir, "**/*")
-        # Expected files = Docling JSONs + chunks + metadata files created during ingestion
+        # Expected files = Docling JSONs + chunks + metadata files + README created during ingestion
         meta_files = {f.replace(".json", ".meta.json") for f in initial_files}
         expected_files_after_chunking = (
-            initial_files | expected_chunk_files | meta_files
+            initial_files | expected_chunk_files | meta_files | {"README.md"}
         )
+        unexpected = all_files_after_chunking - expected_files_after_chunking
+        missing = expected_files_after_chunking - all_files_after_chunking
         assert all_files_after_chunking == expected_files_after_chunking, (
-            "Unexpected files created during chunking"
+            f"Unexpected files created during chunking.\n"
+            f"Unexpected files: {unexpected}\n"
+            f"Missing files: {missing}"
         )
 
         # Verify chunks content is correct
@@ -384,6 +388,7 @@ class TestHighLevelIntegrationSQL:
             | expected_chunk_files  # Chunk files
             | expected_embed_files  # Embedding files
             | meta_files  # Metadata files created during ingestion
+            | {"README.md"}  # README created during ingestion
         )
         assert final_files == expected_final_files, (
             f"Final file set mismatch. Expected {expected_final_files}, got {final_files}"
