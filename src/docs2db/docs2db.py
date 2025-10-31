@@ -484,22 +484,11 @@ def db_stop() -> None:
 
 
 @app.command(name="db-destroy")
-def db_destroy(
-    force: Annotated[bool, typer.Option(help="Skip confirmation prompt")] = False,
-) -> None:
-    """Stop database and remove all data (WARNING: destructive!).
+def db_destroy() -> None:
+    """Stop database and remove all data.
 
-    This will DELETE all database data. Use with caution.
+    This will delete all database data.
     """
-    if not force:
-        confirm = typer.confirm(
-            "⚠️  This will DELETE all database data. Are you sure?",
-            default=False,
-        )
-        if not confirm:
-            logger.info("Operation cancelled")
-            raise typer.Exit(0)
-
     try:
         if not destroy_database():
             raise typer.Exit(1)
