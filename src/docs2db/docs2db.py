@@ -36,7 +36,7 @@ app = typer.Typer(help="Make a RAG Database from source content")
 @app.command()
 def ingest(
     source_path: Annotated[
-        str, typer.Argument(help="Path to directory or file to ingest")
+        Optional[str], typer.Argument(help="Path to directory or file to ingest")
     ],
     dry_run: Annotated[
         bool, typer.Option(help="Show what would be processed without doing it")
@@ -45,7 +45,13 @@ def ingest(
         bool, typer.Option(help="Force reprocessing even if files are up-to-date")
     ] = False,
 ) -> None:
-    """Ingest files using docling to create JSON documents in /content directory."""
+    """Ingest files using docling to create JSON documents in docs2db_content/ directory."""
+    if source_path is None:
+        logger.error("Error: SOURCE_PATH is required")
+        logger.info("Usage: docs2db ingest SOURCE_PATH [OPTIONS]")
+        logger.info("Try 'docs2db ingest --help' for more information")
+        raise typer.Exit(1)
+
     try:
         if not ingest_command(source_path=source_path, dry_run=dry_run, force=force):
             raise typer.Exit(1)
@@ -166,12 +172,12 @@ def embed(
 @app.command()
 def load(
     content_dir: Annotated[
-        str, typer.Option(help="Path to content directory")
-    ] = "content",
+        str | None, typer.Option(help="Path to content directory")
+    ] = None,
     model: Annotated[
-        str,
+        str | None,
         typer.Option(help="Embedding model to load (granite-30m-english)"),
-    ] = "granite-30m-english",
+    ] = None,
     pattern: Annotated[
         str, typer.Option(help="File pattern for source files")
     ] = "**/*.json",
@@ -215,12 +221,15 @@ def load(
     ] = None,
 ) -> None:
     """Load documents, chunks, and embeddings into PostgreSQL database with pgvector."""
+    # Precedence: CLI flags > Environment variables > Settings defaults
+    final_content_dir = content_dir or settings.content_base_dir
+    final_model = model or settings.embedding_model
 
     try:
         if not asyncio.run(
             load_documents(
-                content_dir=content_dir,
-                model_name=model,
+                content_dir=final_content_dir,
+                model_name=final_model,
                 pattern=pattern,
                 host=host,
                 port=port,
@@ -371,14 +380,17 @@ def db_restore(
 @app.command()
 def audit(
     content_dir: Annotated[
-        str, typer.Option(help="Path to content directory")
-    ] = "content",
+        str | None, typer.Option(help="Path to content directory")
+    ] = None,
     pattern: Annotated[str, typer.Option(help="File pattern to process")] = "**/*.json",
 ) -> None:
     """Audit to find missing and stale files."""
+    # Precedence: CLI flags > Environment variables > Settings defaults
+    final_content_dir = content_dir or settings.content_base_dir
+
     try:
         if not perform_audit(
-            content_dir=content_dir,
+            content_dir=final_content_dir,
             pattern=pattern,
         ):
             raise typer.Exit(1)
@@ -443,18 +455,14 @@ def cleanup_workers() -> None:
 
 
 @app.command(name="db-start")
-def db_start(
-    profile: Annotated[
-        str, typer.Option(help="Docker compose profile to use")
-    ] = "prod",
-) -> None:
+def db_start() -> None:
     """Start PostgreSQL database using Docker/Podman.
 
     Creates a default postgres-compose.yml if one doesn't exist.
     Requires Docker or Podman to be installed.
     """
     try:
-        if not start_database(profile=profile):
+        if not start_database():
             raise typer.Exit(1)
     except Docs2DBException as e:
         logger.error(str(e))
@@ -462,17 +470,13 @@ def db_start(
 
 
 @app.command(name="db-stop")
-def db_stop(
-    profile: Annotated[
-        str, typer.Option(help="Docker compose profile to use")
-    ] = "prod",
-) -> None:
+def db_stop() -> None:
     """Stop PostgreSQL database (data is preserved).
 
     The database can be restarted with 'docs2db db-start'.
     """
     try:
-        if not stop_database(profile=profile):
+        if not stop_database():
             raise typer.Exit(1)
     except Docs2DBException as e:
         logger.error(str(e))
@@ -481,9 +485,6 @@ def db_stop(
 
 @app.command(name="db-destroy")
 def db_destroy(
-    profile: Annotated[
-        str, typer.Option(help="Docker compose profile to use")
-    ] = "prod",
     force: Annotated[bool, typer.Option(help="Skip confirmation prompt")] = False,
 ) -> None:
     """Stop database and remove all data (WARNING: destructive!).
@@ -500,7 +501,7 @@ def db_destroy(
             raise typer.Exit(0)
 
     try:
-        if not destroy_database(profile=profile):
+        if not destroy_database():
             raise typer.Exit(1)
     except Docs2DBException as e:
         logger.error(str(e))
@@ -528,20 +529,31 @@ def db_logs(
 @app.command()
 def pipeline(
     source_path: Annotated[
-        str, typer.Argument(help="Path to source directory or file to process")
+        Optional[str],
+        typer.Argument(help="Path to source directory or file to process"),
     ],
     content_dir: Annotated[
-        str, typer.Option(help="Content directory for intermediate files")
-    ] = "docs2db_content",
-    model: Annotated[
-        str, typer.Option(help="Embedding model to use")
-    ] = "granite-30m-english",
+        str | None, typer.Option(help="Content directory for intermediate files")
+    ] = None,
+    model: Annotated[str | None, typer.Option(help="Embedding model to use")] = None,
     skip_context: Annotated[
         bool, typer.Option(help="Skip LLM contextual chunk generation (faster)")
     ] = False,
     output_file: Annotated[
         str, typer.Option(help="Output SQL dump file")
     ] = "ragdb_dump.sql",
+    username: Annotated[
+        str, typer.Option(help="Username to record in change log")
+    ] = "",
+    title: Annotated[
+        Optional[str], typer.Option(help="Database title for metadata")
+    ] = None,
+    description: Annotated[
+        Optional[str], typer.Option(help="Database description for metadata")
+    ] = None,
+    note: Annotated[
+        Optional[str], typer.Option(help="Note about this load operation")
+    ] = None,
 ) -> None:
     """Run complete docs2db pipeline: start DB → ingest → chunk → embed → load → dump → stop.
 
@@ -560,33 +572,42 @@ def pipeline(
       docs2db pipeline /path/to/pdfs
       docs2db pipeline ~/Documents --output-file my-rag.sql
     """
+    if source_path is None:
+        logger.error("Error: SOURCE_PATH is required")
+        logger.info("Usage: docs2db pipeline SOURCE_PATH [OPTIONS]")
+        logger.info("Try 'docs2db pipeline --help' for more information")
+        raise typer.Exit(1)
+
     source = Path(source_path)
     if not source.exists():
         logger.error(f"Source path does not exist: {source_path}")
         raise typer.Exit(1)
 
-    logger.info("=" * 60)
+    # Precedence: CLI flags > Environment variables > Settings defaults
+    final_content_dir = content_dir or settings.content_base_dir
+    final_model = model or settings.embedding_model
+    final_note = note or f"Created by pipeline from {source_path}"
+
     logger.info("Starting docs2db pipeline")
     logger.info(f"Source: {source_path}")
-    logger.info(f"Content directory: {content_dir}")
-    logger.info(f"Embedding model: {model}")
-    logger.info("=" * 60)
+    logger.info(f"Content directory: {final_content_dir}")
+    logger.info(f"Embedding model: {final_model}")
 
     try:
         # Step 1: Start database
-        logger.info("\n[1/7] Starting database...")
+        logger.info("[1/7] Starting database...")
         if not start_database():
             raise Docs2DBException("Failed to start database")
 
         # Step 2: Ingest
-        logger.info("\n[2/7] Ingesting documents...")
+        logger.info("[2/7] Ingesting documents...")
         if not ingest_command(source_path=source_path, dry_run=False, force=False):
             raise Docs2DBException("Failed to ingest documents")
 
         # Step 3: Chunk
-        logger.info("\n[3/7] Generating chunks...")
+        logger.info("[3/7] Generating chunks...")
         if not generate_chunks(
-            content_dir=content_dir,
+            content_dir=final_content_dir,
             pattern="**/*.json",
             force=False,
             dry_run=False,
@@ -599,10 +620,10 @@ def pipeline(
             raise Docs2DBException("Failed to generate chunks")
 
         # Step 4: Embed
-        logger.info("\n[4/7] Generating embeddings...")
+        logger.info("[4/7] Generating embeddings...")
         if not generate_embeddings(
-            content_dir=content_dir,
-            model_name=model,
+            content_dir=final_content_dir,
+            model_name=final_model,
             pattern="**/*.chunks.json",
             force=False,
             dry_run=False,
@@ -610,11 +631,11 @@ def pipeline(
             raise Docs2DBException("Failed to generate embeddings")
 
         # Step 5: Load
-        logger.info("\n[5/7] Loading into database...")
+        logger.info("[5/7] Loading into database...")
         if not asyncio.run(
             load_documents(
-                content_dir=content_dir,
-                model_name=model,
+                content_dir=final_content_dir,
+                model_name=final_model,
                 pattern="**/*.json",
                 host=None,
                 port=None,
@@ -623,16 +644,16 @@ def pipeline(
                 password=None,
                 force=False,
                 batch_size=100,
-                username="",
-                title=None,
-                description=None,
-                note=f"Created by pipeline from {source_path}",
+                username=username,
+                title=title,
+                description=description,
+                note=final_note,
             )
         ):
             raise Docs2DBException("Failed to load into database")
 
         # Step 6: Dump
-        logger.info("\n[6/7] Creating database dump...")
+        logger.info("[6/7] Creating database dump...")
         if not dump_database(
             output_file=output_file,
             host=None,
@@ -645,18 +666,16 @@ def pipeline(
             raise Docs2DBException("Failed to create database dump")
 
         # Step 7: Stop database
-        logger.info("\n[7/7] Stopping database...")
+        logger.info("[7/7] Stopping database...")
         if not stop_database():
             logger.warning("Failed to stop database (not fatal)")
 
-        logger.info("\n" + "=" * 60)
-        logger.info("Pipeline completed successfully!")
+        logger.info("Pipeline complete")
         logger.info(f"Database dump created: {output_file}")
-        logger.info("=" * 60)
 
     except Docs2DBException as e:
-        logger.error(f"\nPipeline failed: {e}")
-        logger.info("\nCleaning up...")
+        logger.error(f"Pipeline failed: {e}")
+        logger.info("Cleaning up...")
 
         # Try to stop database on failure
         try:
@@ -666,7 +685,7 @@ def pipeline(
 
         raise typer.Exit(1)
     except KeyboardInterrupt:
-        logger.warning("\nPipeline interrupted by user")
+        logger.warning("Pipeline interrupted by user")
         logger.info("Cleaning up...")
 
         # Try to stop database on interrupt

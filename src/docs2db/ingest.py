@@ -1,6 +1,7 @@
 """Ingest files using docling to create JSON documents."""
 
 import json
+import logging
 import mimetypes
 import os
 import time
@@ -23,6 +24,26 @@ from docs2db.utils import hash_bytes, hash_file
 
 logger = structlog.get_logger(__name__)
 
+
+def _suppress_docling_logging() -> None:
+    """Suppress verbose logging from docling library.
+
+    Docling uses Python's standard logging and can be very verbose.
+    This sets docling loggers to WARNING level to reduce noise.
+    """
+    # Suppress all docling-related verbose info messages
+    # Set the root docling logger to WARNING, which propagates to all child loggers
+    logging.getLogger("docling").setLevel(logging.WARNING)
+    logging.getLogger("docling.document_converter").setLevel(logging.WARNING)
+    logging.getLogger("docling.pipeline").setLevel(logging.WARNING)
+    logging.getLogger("docling.datamodel").setLevel(logging.WARNING)
+    logging.getLogger("docling_core").setLevel(logging.WARNING)
+
+    # Suppress deepsearch (used by docling for parsing)
+    logging.getLogger("deepsearch").setLevel(logging.WARNING)
+    logging.getLogger("deepsearch_glm").setLevel(logging.WARNING)
+
+
 # Module-level singleton converter for efficiency
 _converter: DocumentConverter | None = None
 
@@ -30,6 +51,8 @@ _converter: DocumentConverter | None = None
 _CONTENT_DIR_README = """# About this folder
 
 This folder was created by `docs2db` to store processed content.
+
+Learn more: https://github.com/rhel-lightspeed/docs2db
 
 ## What's inside
 
@@ -66,6 +89,7 @@ def _get_converter() -> DocumentConverter:
     """
     global _converter
     if _converter is None:
+        _suppress_docling_logging()
         _converter = DocumentConverter()
     return _converter
 
@@ -248,7 +272,7 @@ def ingest_file(
     converter = _get_converter()
 
     try:
-        logger.info(
+        logger.debug(
             "Converting file", source=str(source_file), target=str(content_path)
         )
 
@@ -259,7 +283,7 @@ def ingest_file(
         result = converter.convert(source_file)
         result.document.save_as_json(content_path)
 
-        logger.info(
+        logger.debug(
             "Successfully converted file",
             source=str(source_file),
             target=str(content_path),
@@ -307,7 +331,7 @@ def ingest_from_content(
         if stream_name is None:
             stream_name = content_path.name
 
-        logger.info("Converting content", target=str(content_path), stream=stream_name)
+        logger.debug("Converting content", target=str(content_path), stream=stream_name)
 
         # Convert string content to bytes if needed
         if isinstance(content, str):
@@ -325,7 +349,7 @@ def ingest_from_content(
         document = result.document
         document.save_as_json(json_path)
 
-        logger.info("Successfully converted content", target=str(json_path))
+        logger.debug("Successfully converted content", target=str(json_path))
 
         source_hash = hash_bytes(content)
 

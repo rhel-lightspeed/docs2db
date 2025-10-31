@@ -1126,7 +1126,7 @@ async def check_database_status(
                 db_size = size_row[0]
                 logger.info(f"Database size: {db_size}")
 
-    logger.info("Database status check completed successfully")
+    logger.info("Database status check complete")
 
 
 async def load_files(
@@ -1450,7 +1450,6 @@ async def load_documents(
 
     content_path = Path(content_dir)
     if not content_path.exists():
-        logger.error(f"Content directory does not exist: {content_dir}")
         raise ContentError(f"Content directory does not exist: {content_dir}")
 
     count, file_pairs_iter = await load_files(content_path, model_name, pattern, force)

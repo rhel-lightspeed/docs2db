@@ -1,5 +1,9 @@
 # Generated content directory from ingestion
 /content/
+docs2db_content/
+
+# Database dumps
+ragdb_dump.sql
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
