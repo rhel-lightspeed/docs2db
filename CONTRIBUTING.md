@@ -244,6 +244,138 @@ Co-authored-by: Claude 4.5 Sonnet
 3. Push your branch
 4. Open a pull request with a clear description
 
+## Release Process (Maintainers)
+
+### Branching Strategy
+
+**Current (pre-1.0):**
+- `main` - Always releasable, protected branch
+- Feature branches → PR → merge to main
+- Releases tagged directly from main
+- Breaking changes are acceptable (0.x.x versions)
+
+**Future (post-1.0):**
+- Release branches (`release/1.x`) created only when supporting older major versions
+- Bug fixes backported to release branches as needed
+
+### Versioning
+
+Docs2DB follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`
+
+- `0.1.0` - Initial PyPI release
+- `0.1.1` - Bug fixes (backward compatible)
+- `0.2.0` - New features (backward compatible)
+- `1.0.0` - First stable release (API stable)
+- `2.0.0` - Breaking changes
+
+**Stay on `0.x.x` until the API is stable.**
+
+### Creating a Release
+
+1. **Update version** in `pyproject.toml`:
+   ```toml
+   version = "0.2.0"
+   ```
+
+2. **Update CHANGELOG.md** with release notes:
+   ```markdown
+   ## [0.2.0] - 2024-11-15
+
+   ### Added
+   - New `pipeline` command for end-to-end workflow
+   - Database lifecycle commands (`db-start`, `db-stop`, etc.)
+
+   ### Changed
+   - Improved PostgreSQL configuration with multi-tier precedence
+
+   ### Fixed
+   - Database connection error messages now suggest correct CLI commands
+   ```
+
+3. **Commit version bump**:
+   ```bash
+   git add pyproject.toml CHANGELOG.md
+   git commit -m "Bump version to 0.2.0"
+   git push origin main
+   ```
+
+4. **Tag the release**:
+   ```bash
+   git tag -a v0.2.0 -m "Release v0.2.0: Add pipeline command and DB lifecycle management"
+   git push origin --tags
+   ```
+
+5. **Build and publish to PyPI**:
+   ```bash
+   # Build distribution files
+   uv build
+
+   # Publish to PyPI (requires PyPI token)
+   uv publish
+   ```
+
+6. **Create GitHub Release** (optional but recommended):
+   - Go to GitHub → Releases → "Draft a new release"
+   - Select the tag (v0.2.0)
+   - Copy CHANGELOG entry as release notes
+   - Attach the wheel file from `dist/` if desired
+
+### Testing Before Release
+
+**Test the package installation locally:**
+```bash
+# Build the wheel
+cd /path/to/docs2db
+uv build
+
+# Test installation in isolated environment
+cd /tmp
+mkdir test-install && cd test-install
+uv venv
+uv pip install /path/to/docs2db/dist/docs2db-*.whl
+
+# Verify CLI works
+uv run docs2db --help
+uv run docs2db pipeline --help
+```
+
+### Hotfix Process
+
+**Pre-1.0 (current):**
+- Fix on main, bump patch version, release immediately
+- Users should update to latest quickly
+
+**Post-1.0 (if supporting old versions):**
+```bash
+# Example: Need to fix v1.5.0 while on v2.x
+git checkout -b release/1.x v1.5.0
+# Apply fix
+git cherry-pick <commit-hash>  # or manually apply
+git commit -m "Fix critical bug in X"
+
+# Tag and release
+git tag v1.5.1
+git push origin release/1.x --tags
+uv build
+uv publish
+```
+
+### Release Checklist
+
+Before releasing:
+- [ ] All tests pass (`make test`)
+- [ ] Pre-commit checks pass (`uv run pre-commit run --all-files`)
+- [ ] CHANGELOG.md updated with changes
+- [ ] Version bumped in `pyproject.toml`
+- [ ] Tested package installation locally
+- [ ] Documentation updated (README, etc.)
+
+After releasing:
+- [ ] Git tag created and pushed
+- [ ] Published to PyPI
+- [ ] GitHub Release created with notes
+- [ ] Announced in relevant channels
+
 ## Common Development Tasks
 
 ### Adding a New Embedding Model

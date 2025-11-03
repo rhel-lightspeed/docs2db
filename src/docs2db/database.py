@@ -943,7 +943,9 @@ async def check_database_status(
             or "could not receive data" in error_msg
             or "couldn't get a connection" in error_msg
         ):
-            logger.error("Database is not running. Start database with 'make db-up'")
+            logger.error(
+                "Database is not running. Start database with 'docs2db db-start'"
+            )
         elif (
             "authentication failed" in error_msg
             or "no password supplied" in error_msg
