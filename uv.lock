@@ -369,7 +369,7 @@ wheels = [
 
 [[package]]
 name = "docs2db"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "cachetools" },
@@ -386,6 +386,11 @@ dependencies = [
     { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
     { name = "tqdm" },
     { name = "xxhash" },
+]
+
+[package.optional-dependencies]
+watsonx = [
+    { name = "ibm-watsonx-ai" },
 ]
 
 [package.dev-dependencies]
@@ -407,15 +412,13 @@ dev = [
     { name = "types-cachetools" },
     { name = "types-tqdm" },
 ]
-watsonx = [
-    { name = "ibm-watsonx-ai" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "cachetools", specifier = ">=6.1.0" },
     { name = "docling", specifier = ">=2.42.1" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "ibm-watsonx-ai", marker = "extra == 'watsonx'", specifier = ">=1.3.32" },
     { name = "pgvector", specifier = ">=0.3.8" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.3" },
     { name = "psycopg-pool", specifier = ">=3.2.6" },
@@ -427,6 +430,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "xxhash", specifier = ">=3.5.0" },
 ]
+provides-extras = ["watsonx"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -447,7 +451,6 @@ dev = [
     { name = "types-cachetools", specifier = ">=6.1.0.20250717" },
     { name = "types-tqdm", specifier = ">=4.67.0.20250516" },
 ]
-watsonx = [{ name = "ibm-watsonx-ai", specifier = ">=1.3.32" }]
 
 [[package]]
 name = "easyocr"

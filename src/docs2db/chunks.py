@@ -334,7 +334,8 @@ class WatsonXProvider(LLMProvider):
         except ImportError as e:
             raise ImportError(
                 "IBM WatsonX AI SDK is required for WatsonX provider. "
-                "Install it with: uv sync --group watsonx"
+                "If using docs2db as a tool: uv tool install 'docs2db[watsonx]'\n"
+                "If using docs2db as a dependency: add 'docs2db[watsonx]' to pyproject.toml and run 'uv sync'"
             ) from e
 
         self.model = model

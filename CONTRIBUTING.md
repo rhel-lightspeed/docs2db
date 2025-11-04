@@ -414,8 +414,15 @@ uv run docs2db db-start
 Some features require optional dependencies:
 
 **WatsonX support:**
+
+For development (local repo):
 ```bash
-uv sync --group watsonx
+uv sync
+```
+
+For tool installation:
+```bash
+uv tool install 'docs2db[watsonx]'
 ```
 
 ## Need Help?

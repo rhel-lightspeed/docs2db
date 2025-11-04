@@ -1,6 +1,6 @@
 [project]
 name = "docs2db"
-version = "0.2.0"
+version = "0.2.1"
 description = "Repository of docling documents for RAG"
 readme = "README.md"
 authors = [{ name = "Ellis Low", email = "elow@redhat.com" }]
@@ -19,6 +19,11 @@ dependencies = [
     "torch>=2.7.1",
     "tqdm>=4.67.1",
     "xxhash>=3.5.0",
+]
+
+[project.optional-dependencies]
+watsonx = [
+    "ibm-watsonx-ai>=1.3.32",
 ]
 
 [project.scripts]
@@ -55,9 +60,6 @@ dev = [
     "tox>=4.28.1",
     "types-cachetools>=6.1.0.20250717",
     "types-tqdm>=4.67.0.20250516",
-]
-watsonx = [
-    "ibm-watsonx-ai>=1.3.32",
 ]
 
 [tool.pytest.ini_options]
