@@ -9,8 +9,9 @@ class Settings(BaseSettings):
 
     # LLM Provider Settings for contextual chunking
     llm_skip_context: bool = False
+    llm_provider: str = "openai"  # Provider choice: "openai" or "watsonx"
     llm_context_model: str = "qwen2.5:7b-instruct"
-    llm_openai_url: str | None = None
+    llm_openai_url: str = "http://localhost:11434"  # Default to Ollama
     llm_watsonx_url: str | None = None
     llm_context_limit_override: int | None = None
 

@@ -9,7 +9,6 @@ import typer
 
 from docs2db.audit import perform_audit
 from docs2db.chunks import generate_chunks
-from docs2db.config import settings
 from docs2db.database import (
     check_database_status,
     dump_database,
@@ -78,6 +77,12 @@ def chunk(
     context_model: Annotated[
         str | None, typer.Option(help="LLM model for context generation")
     ] = None,
+    llm_provider: Annotated[
+        str | None,
+        typer.Option(
+            help="LLM provider to use: 'openai' or 'watsonx' (inferred from URL flags if not specified)"
+        ),
+    ] = None,
     openai_url: Annotated[
         str | None,
         typer.Option(
@@ -98,35 +103,18 @@ def chunk(
     ] = None,
 ) -> None:
     """Generate chunks for content files."""
-    # Precedence: CLI flags > Environment variables > Settings defaults
-    final_content_dir = content_dir or settings.content_base_dir
-    final_pattern = pattern or settings.chunking_pattern
-    final_skip_context = (
-        skip_context if skip_context is not None else settings.llm_skip_context
-    )
-    final_context_model = context_model or settings.llm_context_model
-    final_openai_url = openai_url or settings.llm_openai_url
-    final_watsonx_url = watsonx_url or settings.llm_watsonx_url
-    final_context_limit = context_limit or settings.llm_context_limit_override
-
-    # Validate mutually exclusive flags
-    if final_openai_url and final_watsonx_url:
-        logger.error(
-            "Cannot specify both --openai-url and --watsonx-url (or their env var equivalents)"
-        )
-        raise typer.Exit(1)
-
     try:
         if not generate_chunks(
-            final_content_dir,
-            final_pattern,
-            force,
-            dry_run,
-            skip_context=final_skip_context,
-            context_model=final_context_model,
-            openai_url=final_openai_url,
-            watsonx_url=final_watsonx_url,
-            context_limit_override=final_context_limit,
+            content_dir=content_dir,
+            pattern=pattern,
+            force=force,
+            dry_run=dry_run,
+            skip_context=skip_context,
+            context_model=context_model,
+            provider=llm_provider,
+            openai_url=openai_url,
+            watsonx_url=watsonx_url,
+            context_limit_override=context_limit,
         ):
             raise typer.Exit(1)
     except Docs2DBException as e:
@@ -154,14 +142,13 @@ def embed(
     ] = False,
 ) -> None:
     """Generate embeddings for chunked content files."""
-    # Precedence: CLI flags > Environment variables > Settings defaults
-    final_content_dir = content_dir or settings.content_base_dir
-    final_model = model or settings.embedding_model
-    final_pattern = pattern or settings.embedding_pattern
-
     try:
         if not generate_embeddings(
-            final_content_dir, final_model, final_pattern, force, dry_run
+            content_dir=content_dir,
+            model_name=model,
+            pattern=pattern,
+            force=force,
+            dry_run=dry_run,
         ):
             raise typer.Exit(1)
     except Docs2DBException as e:
@@ -221,15 +208,11 @@ def load(
     ] = None,
 ) -> None:
     """Load documents, chunks, and embeddings into PostgreSQL database with pgvector."""
-    # Precedence: CLI flags > Environment variables > Settings defaults
-    final_content_dir = content_dir or settings.content_base_dir
-    final_model = model or settings.embedding_model
-
     try:
         if not asyncio.run(
             load_documents(
-                content_dir=final_content_dir,
-                model_name=final_model,
+                content_dir=content_dir,
+                model_name=model,
                 pattern=pattern,
                 host=host,
                 port=port,
@@ -385,12 +368,9 @@ def audit(
     pattern: Annotated[str, typer.Option(help="File pattern to process")] = "**/*.json",
 ) -> None:
     """Audit to find missing and stale files."""
-    # Precedence: CLI flags > Environment variables > Settings defaults
-    final_content_dir = content_dir or settings.content_base_dir
-
     try:
         if not perform_audit(
-            content_dir=final_content_dir,
+            content_dir=content_dir,
             pattern=pattern,
         ):
             raise typer.Exit(1)
@@ -528,6 +508,33 @@ def pipeline(
     skip_context: Annotated[
         bool, typer.Option(help="Skip LLM contextual chunk generation (faster)")
     ] = False,
+    context_model: Annotated[
+        str | None, typer.Option(help="LLM model for context generation")
+    ] = None,
+    llm_provider: Annotated[
+        str | None,
+        typer.Option(
+            help="LLM provider to use: 'openai' or 'watsonx' (inferred from URL flags if not specified)"
+        ),
+    ] = None,
+    openai_url: Annotated[
+        str | None,
+        typer.Option(
+            help="OpenAI-compatible API URL (default: http://localhost:11434 for Ollama)"
+        ),
+    ] = None,
+    watsonx_url: Annotated[
+        str | None,
+        typer.Option(
+            help="IBM WatsonX API URL (requires WATSONX_API_KEY and WATSONX_PROJECT_ID env vars)"
+        ),
+    ] = None,
+    context_limit: Annotated[
+        int | None,
+        typer.Option(
+            help="Override model context limit (in tokens) for map-reduce summarization"
+        ),
+    ] = None,
     output_file: Annotated[
         str, typer.Option(help="Output SQL dump file")
     ] = "ragdb_dump.sql",
@@ -572,15 +579,8 @@ def pipeline(
         logger.error(f"Source path does not exist: {source_path}")
         raise typer.Exit(1)
 
-    # Precedence: CLI flags > Environment variables > Settings defaults
-    final_content_dir = content_dir or settings.content_base_dir
-    final_model = model or settings.embedding_model
-    final_note = note or f"Created by pipeline from {source_path}"
-
     logger.info("Starting docs2db pipeline")
     logger.info(f"Source: {source_path}")
-    logger.info(f"Content directory: {final_content_dir}")
-    logger.info(f"Embedding model: {final_model}")
 
     try:
         # Step 1: Start database
@@ -596,23 +596,24 @@ def pipeline(
         # Step 3: Chunk
         logger.info("[3/7] Generating chunks...")
         if not generate_chunks(
-            content_dir=final_content_dir,
+            content_dir=content_dir,
             pattern="**/*.json",
             force=False,
             dry_run=False,
             skip_context=skip_context,
-            context_model=settings.llm_context_model,
-            openai_url=None,
-            watsonx_url=None,
-            context_limit_override=None,
+            context_model=context_model,
+            provider=llm_provider,
+            openai_url=openai_url,
+            watsonx_url=watsonx_url,
+            context_limit_override=context_limit,
         ):
             raise Docs2DBException("Failed to generate chunks")
 
         # Step 4: Embed
         logger.info("[4/7] Generating embeddings...")
         if not generate_embeddings(
-            content_dir=final_content_dir,
-            model_name=final_model,
+            content_dir=content_dir,
+            model_name=model,
             pattern="**/*.chunks.json",
             force=False,
             dry_run=False,
@@ -623,8 +624,8 @@ def pipeline(
         logger.info("[5/7] Loading into database...")
         if not asyncio.run(
             load_documents(
-                content_dir=final_content_dir,
-                model_name=final_model,
+                content_dir=content_dir,
+                model_name=model,
                 pattern="**/*.json",
                 host=None,
                 port=None,
@@ -636,7 +637,7 @@ def pipeline(
                 username=username,
                 title=title,
                 description=description,
-                note=final_note,
+                note=note,
             )
         ):
             raise Docs2DBException("Failed to load into database")

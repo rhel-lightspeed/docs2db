@@ -525,6 +525,7 @@ class LLMSession:
     def __init__(
         self,
         model: str = "qwen2.5:7b-instruct",
+        provider: str | None = None,
         openai_url: str | None = None,
         watsonx_url: str | None = None,
         context_limit_override: int | None = None,
@@ -535,10 +536,17 @@ class LLMSession:
 
         Args:
             model: Model identifier
-            openai_url: OpenAI-compatible API URL (mutually exclusive with watsonx_url)
-            watsonx_url: WatsonX API URL (mutually exclusive with openai_url)
+            provider: Provider to use ("openai" or "watsonx"); must not be None
+            openai_url: OpenAI-compatible API URL (required if provider is "openai")
+            watsonx_url: WatsonX API URL (required if provider is "watsonx")
             context_limit_override: Override model context limit (in tokens)
+
+        Raises:
+            ValueError: If provider is None or if required URL is missing
         """
+        if provider is None:
+            raise ValueError("provider must not be None")
+
         self.model = model
         self.openai_url = openai_url
         self.watsonx_url = watsonx_url
@@ -546,11 +554,17 @@ class LLMSession:
         self.doc_text = ""
         self._was_summarized = False  # Track if current document was summarized
 
-        # Initialize the provider (API client) once
+        # Initialize the provider (API client) once based on explicit provider selection
         # For WatsonX, this creates the APIClient and ModelInference
         # For OpenAI, this creates the httpx.Client
-        if self.watsonx_url:
+        if provider == "watsonx":
             # Use WatsonX provider
+            if not self.watsonx_url:
+                raise ValueError(
+                    "provider is 'watsonx' but watsonx_url is None. "
+                    "WatsonX API URL is required."
+                )
+
             api_key = settings.watsonx_api_key
             project_id = settings.watsonx_project_id
 
@@ -565,17 +579,22 @@ class LLMSession:
                 url=self.watsonx_url,
                 model=self.model,
             )
-        elif self.openai_url:
+        elif provider == "openai":
             # Use OpenAI-compatible provider (Ollama, OpenAI, etc.)
+            if not self.openai_url:
+                raise ValueError(
+                    "provider is 'openai' but openai_url is None. "
+                    "OpenAI-compatible API URL is required (e.g., http://localhost:11434 for Ollama)."
+                )
+
             self.provider = OpenAICompatibleProvider(
                 base_url=self.openai_url,
                 model=self.model,
             )
         else:
             raise ValueError(
-                "Either LLM_OPENAI_URL or LLM_WATSONX_URL must be set for contextual chunking. "
-                "Set LLM_OPENAI_URL for Ollama/OpenAI-compatible APIs (e.g., http://localhost:11434) "
-                "or LLM_WATSONX_URL for IBM WatsonX."
+                f"Unknown provider: '{provider}'. "
+                "Valid options are 'openai' or 'watsonx'."
             )
 
     def set_document(self, doc_text: str):
@@ -773,6 +792,7 @@ def generate_chunks_batch(
     force: bool = False,
     skip_context: bool = False,
     context_model: str = "qwen2.5:7b-instruct",
+    provider: str | None = None,
     openai_url: str | None = None,
     watsonx_url: str | None = None,
     context_limit_override: int | None = None,
@@ -784,6 +804,7 @@ def generate_chunks_batch(
         force: If True, reprocess files even if chunks are up-to-date
         skip_context: If True, skip LLM contextual chunk generation
         context_model: LLM model for context generation
+        provider: LLM provider ("openai" or "watsonx"); must not be None if skip_context is False
         openai_url: OpenAI-compatible API URL
         watsonx_url: WatsonX API URL
         context_limit_override: Override model context limit (in tokens)
@@ -796,7 +817,21 @@ def generate_chunks_batch(
             - last_file: Path of the last file processed (for debugging)
             - memory: Worker process memory usage in MB
             - worker_logs: Collected log messages from this worker
+
+    Raises:
+        ValueError: If provider is None when skip_context is False, or if required URL is missing
     """
+    # Validate provider and URLs if contextual chunking is enabled
+    if not skip_context:
+        if provider is None:
+            raise ValueError("provider must not be None when skip_context is False")
+
+        if provider == "watsonx" and watsonx_url is None:
+            raise ValueError("watsonx_url must not be None when provider is 'watsonx'")
+
+        if provider == "openai" and openai_url is None:
+            raise ValueError("openai_url must not be None when provider is 'openai'")
+
     successes = 0
     errors = 0
     error_data = []
@@ -828,6 +863,7 @@ def generate_chunks_batch(
     if not skip_context:
         reusable_llm_session = LLMSession(
             model=context_model,
+            provider=provider,
             openai_url=openai_url,
             watsonx_url=watsonx_url,
             context_limit_override=context_limit_override,
@@ -876,12 +912,13 @@ def generate_chunks_batch(
 
 
 def generate_chunks(
-    content_dir: str,
-    pattern: str,
+    content_dir: str | None = None,
+    pattern: str | None = None,
     force: bool = False,
     dry_run: bool = False,
-    skip_context: bool = False,
-    context_model: str = "qwen2.5:7b-instruct",
+    skip_context: bool | None = None,
+    context_model: str | None = None,
+    provider: str | None = None,
     openai_url: str | None = None,
     watsonx_url: str | None = None,
     context_limit_override: int | None = None,
@@ -889,25 +926,50 @@ def generate_chunks(
     """Generate .chunks.json files from source files using multiprocessing.
 
     Args:
-        content_dir (str): Path to content directory.
-        pattern (str): File pattern to process.
-        force (bool): Force processing even if output already exists.
-        dry_run (bool): Show what would be processed without doing it.
-        skip_context (bool): Skip LLM contextual chunk generation.
-        context_model (str): LLM model for context generation.
-        openai_url (str | None): OpenAI-compatible API URL.
-        watsonx_url (str | None): WatsonX API URL.
-        context_limit_override (int | None): Override model context limit (in tokens).
+        content_dir: Path to content directory (defaults to settings.content_base_dir).
+        pattern: File pattern to process (defaults to settings.chunking_pattern).
+        force: Force processing even if output already exists.
+        dry_run: Show what would be processed without doing it.
+        skip_context: Skip LLM contextual chunk generation (defaults to settings.llm_skip_context).
+        context_model: LLM model for context generation (defaults to settings.llm_context_model).
+        provider: LLM provider ("openai" or "watsonx"); inferred from URLs or defaults to settings.llm_provider.
+        openai_url: OpenAI-compatible API URL (defaults to settings.llm_openai_url).
+        watsonx_url: WatsonX API URL (defaults to settings.llm_watsonx_url).
+        context_limit_override: Override model context limit in tokens (defaults to settings.llm_context_limit_override).
 
     Returns:
         bool: True if successful, False if any errors occurred.
     """
+
     start = time.time()
 
-    # Determine provider info for logging
+    # Infer provider if not explicitly specified
+    if provider is None:
+        if watsonx_url is not None:  # --watsonx-url was explicitly given, infer watsonx
+            provider = "watsonx"
+        elif openai_url is not None:  # --openai-url was explicitly given, infer openai
+            provider = "openai"
+        else:  # Use settings default
+            provider = settings.llm_provider
+
+    if content_dir is None:
+        content_dir = settings.content_base_dir
+    if pattern is None:
+        pattern = settings.chunking_pattern
+    if skip_context is None:
+        skip_context = settings.llm_skip_context
+    if context_model is None:
+        context_model = settings.llm_context_model
+    if openai_url is None:
+        openai_url = settings.llm_openai_url
+    if watsonx_url is None:
+        watsonx_url = settings.llm_watsonx_url
+    if context_limit_override is None:
+        context_limit_override = settings.llm_context_limit_override
+
     if skip_context:
         provider_info = "disabled"
-    elif watsonx_url:
+    elif provider == "watsonx":
         provider_info = f"enabled (watsonx: {context_model})"
     else:
         provider_info = f"enabled (openai: {context_model})"
@@ -943,6 +1005,7 @@ def generate_chunks(
             force,
             skip_context,
             context_model,
+            provider,
             openai_url,
             watsonx_url,
             context_limit_override,

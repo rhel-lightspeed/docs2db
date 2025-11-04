@@ -9,6 +9,7 @@ from typing import Any, Iterator
 import psutil
 import structlog
 
+from docs2db.config import settings
 from docs2db.embeddings import Embedding
 from docs2db.multiproc import BatchProcessor, setup_worker_logging
 
@@ -87,24 +88,32 @@ def generate_embeddings_batch(
 
 
 def generate_embeddings(
-    content_dir: str,
-    model_name: str,
-    pattern: str,
+    content_dir: str | None = None,
+    model_name: str | None = None,
+    pattern: str | None = None,
     force: bool = False,
     dry_run: bool = False,
 ) -> bool:
     """Generate embedding files using multiprocessing, with a progress bar.
 
     Args:
-        content_dir (str): Path to content directory.
-        model_name (str): Name of the embedding model to use.
-        pattern (str): File pattern for chunks files.
-        force (bool): Force processing even if output already exists.
-        dry_run (bool): Show what would be processed without doing it.
+        content_dir: Path to content directory (defaults to settings.content_base_dir).
+        model_name: Name of the embedding model to use (defaults to settings.embedding_model).
+        pattern: File pattern for chunks files (defaults to settings.embedding_pattern).
+        force: Force processing even if output already exists.
+        dry_run: Show what would be processed without doing it.
 
     Returns:
         bool: True if successful, False if any errors occurred.
     """
+
+    if content_dir is None:
+        content_dir = settings.content_base_dir
+    if model_name is None:
+        model_name = settings.embedding_model
+    if pattern is None:
+        pattern = settings.embedding_pattern
+
     start = time.time()
 
     embedding = Embedding.from_name(model_name)

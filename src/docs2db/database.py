@@ -6,7 +6,6 @@ import logging
 import os
 import subprocess
 import time
-import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -17,6 +16,7 @@ import structlog
 import yaml
 from psycopg.sql import SQL, Identifier
 
+from docs2db.config import settings
 from docs2db.const import DATABASE_SCHEMA_VERSION
 from docs2db.embeddings import EMBEDDING_CONFIGS, create_embedding_filename
 from docs2db.exceptions import ConfigurationError, ContentError, DatabaseError
@@ -537,7 +537,6 @@ class DatabaseManager:
         force: bool = False,
     ) -> Tuple[int, int]:
         """Load a batch of documents, chunks, and embeddings using bulk operations."""
-        from docs2db.embeddings import EMBEDDING_CONFIGS
 
         processed = 0
         errors = 0
@@ -1337,14 +1336,14 @@ async def _load_batch_async(
 
 
 async def load_documents(
-    content_dir: str,
-    model_name: str,
-    pattern: str,
-    host: Optional[str],
-    port: Optional[int],
-    db: Optional[str],
-    user: Optional[str],
-    password: Optional[str],
+    content_dir: str | None = None,
+    model_name: str | None = None,
+    pattern: str | None = None,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    db: Optional[str] = None,
+    user: Optional[str] = None,
+    password: Optional[str] = None,
     force: bool = False,
     batch_size: int = 100,
     username: str = "",
@@ -1355,9 +1354,9 @@ async def load_documents(
     """Load documents and embeddings in the PostgreSQL database.
 
     Args:
-        content_dir: Directory containing content files
-        model_name: Embedding model name
-        pattern: File pattern to match
+        content_dir: Directory containing content files (defaults to settings.content_base_dir)
+        model_name: Embedding model name (defaults to settings.embedding_model)
+        pattern: File pattern to match (defaults to "**/*.json")
         host: Database host (auto-detected from compose file if None)
         port: Database port (auto-detected from compose file if None)
         db: Database name (auto-detected from compose file if None)
@@ -1374,9 +1373,15 @@ async def load_documents(
         ContentError: If content directory does not exist
         DatabaseError: If database operations fail
     """
-    start = time.time()
 
-    from docs2db.embeddings import EMBEDDING_CONFIGS
+    if content_dir is None:
+        content_dir = settings.content_base_dir
+    if model_name is None:
+        model_name = settings.embedding_model
+    if pattern is None:
+        pattern = "**/*.json"
+
+    start = time.time()
 
     config = get_db_config()
     host = host if host is not None else config["host"]

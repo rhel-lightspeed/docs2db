@@ -14,6 +14,7 @@ from rich.progress import (
 )
 
 from docs2db.chunks import is_chunks_stale
+from docs2db.config import settings
 from docs2db.const import METADATA_SCHEMA_VERSION
 from docs2db.embeddings import EMBEDDING_CONFIGS, is_embedding_stale
 from docs2db.exceptions import ContentError
@@ -22,14 +23,14 @@ logger = structlog.get_logger(__name__)
 
 
 def perform_audit(
-    content_dir: str,
-    pattern: str = "**/*.json",
+    content_dir: str | None = None,
+    pattern: str | None = None,
 ) -> bool:
     """Audit to find missing and stale files.
 
     Args:
-        content_dir: Path to content directory
-        pattern: File pattern to process
+        content_dir: Path to content directory (defaults to settings.content_base_dir)
+        pattern: File pattern to process (defaults to "**/*.json")
 
     Returns:
         True if successful, False if errors occurred
@@ -37,6 +38,12 @@ def perform_audit(
     Raises:
         ContentError: If content directory does not exist
     """
+
+    if content_dir is None:
+        content_dir = settings.content_base_dir
+    if pattern is None:
+        pattern = "**/*.json"
+
     content_path = Path(content_dir)
 
     if not content_path.exists():

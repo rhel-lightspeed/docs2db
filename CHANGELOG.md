@@ -11,10 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved routine document analysis logging to DEBUG level; summarization events still logged at INFO level
 - **performance improvement**: LLM API clients (WatsonX, OpenAI) are now reused across documents in the same batch instead of creating new clients for each document
 - `LLMSession.__init__()` no longer takes `doc_text` parameter; call `set_document(doc_text)` after initialization
-- **Breaking change**: `LLM_OPENAI_URL` now defaults to `None` instead of `http://localhost:11434`; users must explicitly set either `LLM_OPENAI_URL` or `LLM_WATSONX_URL` when using contextual chunking
+- Added `LLM_PROVIDER` setting (defaults to `"openai"`) to explicitly choose between OpenAI-compatible and WatsonX providers; provider selection now respects Pydantic Settings precedence (CLI/env > .env file > defaults)
+- Added `--llm-provider`, `--openai-url`, `--watsonx-url`, `--context-model`, and `--context-limit` CLI flags to `chunk` and `pipeline` commands to explicitly control LLM provider settings
+- Provider is inferred from URL flags if not explicitly specified (e.g., `--watsonx-url` → `watsonx`, `--openai-url` → `openai`)
+- Removed validation that prevented both `--openai-url` and `--watsonx-url` from being set; provider selection now explicit via `--llm-provider` or inferred from flags
+- Settings access is now centralized in public API functions only (`generate_chunks()`, `generate_embeddings()`, `load_documents()`, `perform_audit()`); all internal functions require explicit parameters and validate inputs strictly (no global settings access)
 
 ### Fixed
-- Fixed WatsonX rate limiting issues by reusing API clients across documents in worker batches
+- Addressed WatsonX rate limiting issues by reusing API clients across documents in worker batches
 
 ## [0.2.1] - 2025-11-03
 
