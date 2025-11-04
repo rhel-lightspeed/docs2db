@@ -1,6 +1,7 @@
 """RAG chunking for Docs2DB content."""
 
 import json
+import logging
 import os
 import time
 from abc import ABC, abstractmethod
@@ -231,6 +232,15 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
+    def set_doc_text(self, doc_text: str):
+        """Update the document text for context.
+
+        Args:
+            doc_text: New document text for context
+        """
+        pass
+
+    @abstractmethod
     def close(self):
         """Clean up provider resources."""
         pass
@@ -239,17 +249,17 @@ class LLMProvider(ABC):
 class OpenAICompatibleProvider(LLMProvider):
     """Provider for OpenAI-compatible APIs (Ollama, OpenAI, etc)."""
 
-    def __init__(self, base_url: str, model: str, messages: list[dict]):
+    def __init__(self, base_url: str, model: str):
         """Initialize OpenAI-compatible provider.
 
         Args:
             base_url: Base URL for the API endpoint
             model: Model identifier
-            messages: Initial conversation messages (system + document context)
         """
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self.messages = messages
+        # Initialize with placeholder messages; will be replaced by set_doc_text()
+        self.messages = [{"role": "system", "content": "Initializing..."}]
         self.client = httpx.Client(timeout=60.0)
 
     def get_chunk_context(self, chunk_prompt: str) -> str:
@@ -303,6 +313,28 @@ Summary:"""
         result = response.json()
         return result["choices"][0]["message"]["content"].strip()
 
+    def set_doc_text(self, doc_text: str):
+        """Update the document text in the conversation messages.
+
+        Args:
+            doc_text: New document text for context
+        """
+        # Update messages with new document context
+        self.messages = [
+            {
+                "role": "system",
+                "content": "You are an expert at providing concise context for text chunks within documents.",
+            },
+            {
+                "role": "user",
+                "content": f"I will give you a document, then ask you to provide context for specific chunks from it.\n\n<document>\n{doc_text}\n</document>",
+            },
+            {
+                "role": "assistant",
+                "content": "I have read the document. Please provide the chunks you'd like me to contextualize.",
+            },
+        ]
+
     def close(self):
         """Close the HTTP client."""
         self.client.close()
@@ -311,9 +343,7 @@ Summary:"""
 class WatsonXProvider(LLMProvider):
     """Provider for IBM WatsonX."""
 
-    def __init__(
-        self, api_key: str, project_id: str, url: str, model: str, doc_text: str
-    ):
+    def __init__(self, api_key: str, project_id: str, url: str, model: str):
         """Initialize WatsonX provider.
 
         Args:
@@ -321,7 +351,6 @@ class WatsonXProvider(LLMProvider):
             project_id: WatsonX project ID
             url: WatsonX API URL
             model: Model identifier
-            doc_text: Full document text for context
         """
         try:
             from ibm_watsonx_ai import (  # type: ignore[import-untyped]
@@ -339,7 +368,7 @@ class WatsonXProvider(LLMProvider):
             ) from e
 
         self.model = model
-        self.doc_text = doc_text
+        self.doc_text = ""  # Will be set later via set_doc_text()
 
         # Initialize WatsonX API client
         credentials = Credentials(api_key=api_key, url=url)
@@ -414,6 +443,14 @@ Summary:"""
         response = self.model_inference.chat(messages=messages, params=params)
         return response["choices"][0]["message"]["content"].strip()
 
+    def set_doc_text(self, doc_text: str):
+        """Update the document text for context.
+
+        Args:
+            doc_text: New document text for context
+        """
+        self.doc_text = doc_text
+
     def close(self):
         """Clean up WatsonX resources."""
         # WatsonX APIClient doesn't require explicit cleanup
@@ -483,51 +520,37 @@ def map_reduce_summarize(
 
 
 class LLMSession:
-    """Persistent LLM session for reusing document context across chunks."""
+    """Persistent LLM session for reusing API client across documents."""
 
     def __init__(
         self,
-        doc_text: str,
         model: str = "qwen2.5:7b-instruct",
         openai_url: str | None = None,
         watsonx_url: str | None = None,
         context_limit_override: int | None = None,
     ):
-        """Initialize LLM session with appropriate provider.
+        """Initialize LLM session (creates API client only, no document yet).
+
+        Call set_document() after initialization to load a document.
 
         Args:
-            doc_text: Full document text for context
             model: Model identifier
             openai_url: OpenAI-compatible API URL (mutually exclusive with watsonx_url)
             watsonx_url: WatsonX API URL (mutually exclusive with openai_url)
             context_limit_override: Override model context limit (in tokens)
         """
-        self.doc_text = doc_text
         self.model = model
-        self._was_summarized = False  # Track if document was summarized
+        self.openai_url = openai_url
+        self.watsonx_url = watsonx_url
+        self.context_limit_override = context_limit_override
+        self.doc_text = ""
+        self._was_summarized = False  # Track if current document was summarized
 
-        # Check if document needs summarization
-        doc_words = len(doc_text.split())
-        doc_tokens = estimate_tokens(doc_text)
-        doc_chars = len(doc_text)
-
-        # Use override if provided, otherwise use model's known limit
-        if context_limit_override:
-            model_limit = context_limit_override
-        else:
-            model_limit = MODEL_CONTEXT_LIMITS.get(
-                model, 32768
-            )  # Default to 32K if unknown
-        usable_limit = int(model_limit * CONTEXT_SAFETY_MARGIN)
-
-        logger.info(
-            f"Document analysis: {doc_words} words, {doc_tokens} estimated tokens, {doc_chars} chars | "
-            f"Model limit: {model_limit} tokens, Usable (70%): {usable_limit} tokens"
-        )
-
-        # Determine which provider to use and create it
-        if watsonx_url:
-            # Use WatsonX provider - get credentials from settings
+        # Initialize the provider (API client) once
+        # For WatsonX, this creates the APIClient and ModelInference
+        # For OpenAI, this creates the httpx.Client
+        if self.watsonx_url:
+            # Use WatsonX provider
             api_key = settings.watsonx_api_key
             project_id = settings.watsonx_project_id
 
@@ -536,99 +559,69 @@ class LLMSession:
                     "WATSONX_API_KEY and WATSONX_PROJECT_ID must be set (via env vars or .env file)"
                 )
 
-            # Create provider first (needed for summarization)
-            temp_provider = WatsonXProvider(
-                api_key=api_key,
-                project_id=project_id,
-                url=watsonx_url,
-                model=model,
-                doc_text="",  # Temporary, will update after summarization if needed
-            )
-
-            # Check if summarization is needed
-            if doc_tokens > usable_limit:
-                logger.info(
-                    f"Document exceeds context limit ({doc_tokens} > {usable_limit}). "
-                    f"Using map-reduce summarization."
-                )
-                doc_text = map_reduce_summarize(
-                    temp_provider, doc_text, usable_limit, model
-                )
-                final_tokens = estimate_tokens(doc_text)
-                logger.info(
-                    f"Summarization complete. Reduced from {doc_tokens} to {final_tokens} tokens"
-                )
-                self._was_summarized = True
-
-            # Create final provider with (potentially summarized) doc_text
             self.provider = WatsonXProvider(
                 api_key=api_key,
                 project_id=project_id,
-                url=watsonx_url,
-                model=model,
-                doc_text=doc_text,
+                url=self.watsonx_url,
+                model=self.model,
             )
-
-            # Close temporary provider
-            temp_provider.close()
-
-        else:
-            # Use OpenAI-compatible provider (default to Ollama)
-            base_url = openai_url or "http://localhost:11434"
-
-            # Initialize conversation messages for OpenAI-compatible provider
-            messages_template = [
-                {
-                    "role": "system",
-                    "content": "You are an expert at providing concise context for text chunks within documents.",
-                },
-                {
-                    "role": "user",
-                    "content": "I will give you a document, then ask you to provide context for specific chunks from it.\n\n<document>\n{doc_text}\n</document>",
-                },
-                {
-                    "role": "assistant",
-                    "content": "I have read the document. Please provide the chunks you'd like me to contextualize.",
-                },
-            ]
-
-            # Create temporary provider for summarization if needed
-            if doc_tokens > usable_limit:
-                logger.info(
-                    f"Document exceeds context limit ({doc_tokens} > {usable_limit}). "
-                    f"Using map-reduce summarization."
-                )
-                # Create temp provider for summarization
-                temp_messages = [
-                    {"role": "user", "content": "placeholder"}
-                ]  # Won't use messages for summarization
-                temp_provider = OpenAICompatibleProvider(
-                    base_url=base_url, model=model, messages=temp_messages
-                )
-
-                doc_text = map_reduce_summarize(
-                    temp_provider, doc_text, usable_limit, model
-                )
-                final_tokens = estimate_tokens(doc_text)
-                logger.info(
-                    f"Summarization complete. Reduced from {doc_tokens} to {final_tokens} tokens"
-                )
-                self._was_summarized = True
-                temp_provider.close()
-
-            # Create messages with (potentially summarized) doc_text
-            messages = [
-                msg
-                if "{doc_text}" not in msg.get("content", "")
-                else {**msg, "content": msg["content"].format(doc_text=doc_text)}
-                for msg in messages_template
-            ]
-
+        elif self.openai_url:
+            # Use OpenAI-compatible provider (Ollama, OpenAI, etc.)
             self.provider = OpenAICompatibleProvider(
-                base_url=base_url,
-                model=model,
-                messages=messages,
+                base_url=self.openai_url,
+                model=self.model,
             )
+        else:
+            raise ValueError(
+                "Either LLM_OPENAI_URL or LLM_WATSONX_URL must be set for contextual chunking. "
+                "Set LLM_OPENAI_URL for Ollama/OpenAI-compatible APIs (e.g., http://localhost:11434) "
+                "or LLM_WATSONX_URL for IBM WatsonX."
+            )
+
+    def set_document(self, doc_text: str):
+        """Set the document that will be used for context generation.
+
+        Args:
+            doc_text: Full document text for context
+        """
+        # Reset summarization flag for new document
+        self._was_summarized = False
+
+        # Analyze document size
+        doc_words = len(doc_text.split())
+        doc_tokens = estimate_tokens(doc_text)
+        doc_chars = len(doc_text)
+
+        # Determine model limits
+        if self.context_limit_override:
+            model_limit = self.context_limit_override
+        else:
+            model_limit = MODEL_CONTEXT_LIMITS.get(self.model, 32768)
+        usable_limit = int(model_limit * CONTEXT_SAFETY_MARGIN)
+
+        logger.debug(
+            f"Document analysis: {doc_words} words, {doc_tokens} estimated tokens, {doc_chars} chars | "
+            f"Model limit: {model_limit} tokens, Usable (70%): {usable_limit} tokens"
+        )
+
+        # Check if summarization is needed
+        if doc_tokens > usable_limit:
+            logger.info(
+                f"Document exceeds context limit ({doc_tokens} > {usable_limit}). "
+                f"Using map-reduce summarization."
+            )
+            doc_text = map_reduce_summarize(
+                self.provider, doc_text, usable_limit, self.model
+            )
+            final_tokens = estimate_tokens(doc_text)
+            logger.info(
+                f"Summarization complete. Reduced from {doc_tokens} to {final_tokens} tokens"
+            )
+            self._was_summarized = True
+
+        # Update provider with (potentially summarized) document
+        self.doc_text = doc_text
+        self.provider.set_doc_text(doc_text)
 
     def get_chunk_context(self, chunk_text: str) -> str:
         """Get context for a chunk using the configured provider."""
@@ -655,8 +648,24 @@ def generate_chunks_for_document(
     openai_url: str | None = None,
     watsonx_url: str | None = None,
     context_limit_override: int | None = None,
+    llm_session: LLMSession | None = None,
 ) -> Path:
-    """Generate chunks for a document."""
+    """Generate chunks for a document.
+
+    Args:
+        source_str: Path to source file
+        content_dir: Base content directory
+        force: Force regeneration even if chunks exist
+        skip_context: Skip LLM contextual enrichment
+        context_model: LLM model for contextual enrichment
+        openai_url: OpenAI-compatible API URL
+        watsonx_url: WatsonX API URL
+        context_limit_override: Override model context limit
+        llm_session: Pre-initialized LLM session to reuse (avoids creating new API clients)
+
+    Returns:
+        Path to generated chunks file
+    """
     source_file = Path(source_str)
     chunks_file = source_file.with_suffix(".chunks.json")
 
@@ -671,41 +680,30 @@ def generate_chunks_for_document(
     chunker = HybridChunker(tokenizer=get_tokenizer(), merge_peers=True)
     chunks_data = []
 
-    # Create persistent LLM session if context generation is enabled
-    llm_session = None
+    # Reuse LLM session if context generation is enabled
     if not skip_context:
+        assert llm_session is not None
         doc_text = dl_doc.export_to_markdown()
-        llm_session = LLMSession(
-            doc_text,
-            model=context_model,
-            openai_url=openai_url,
-            watsonx_url=watsonx_url,
-            context_limit_override=context_limit_override,
-        )
+        llm_session.set_document(doc_text)
 
-    try:
-        for chunk_idx, chunk in enumerate(chunker.chunk(dl_doc=dl_doc)):
-            # Get enriched text from docling's contextualization (adds heading context)
-            enriched_text = chunker.contextualize(chunk=chunk)
-            original_text = enriched_text.replace("\xa0", " ")
+    for chunk in chunker.chunk(dl_doc=dl_doc):
+        # Get structural context from docling (adds heading hierarchy, page numbers, etc.)
+        structural_context_text = chunker.contextualize(chunk=chunk)
+        chunk_text = structural_context_text.replace("\xa0", " ")
 
-            # Generate chunk-specific context if enabled
-            if llm_session:
-                chunk_context = llm_session.get_chunk_context(original_text)
-                contextual_text = f"{chunk_context}\n\n{original_text}"
-            else:
-                contextual_text = original_text
-
-            chunk_data = {
-                "text": original_text,  # Original chunk text
-                "contextual_text": contextual_text,  # Context-enhanced text for embeddings and BM25
-                "metadata": chunk.meta.model_dump(),
-            }
-            chunks_data.append(chunk_data)
-    finally:
-        # Always close the session to free resources
+        # Add LLM-generated semantic context if enabled
         if llm_session:
-            llm_session.close()
+            llm_context = llm_session.get_chunk_context(chunk_text)
+            contextual_text = f"{llm_context}\n\n{chunk_text}"
+        else:
+            contextual_text = chunk_text
+
+        chunk_data = {
+            "text": chunk_text,  # Structural context + chunk text - shown to LLM
+            "contextual_text": contextual_text,  # semantic context + structural context + chunk text - for indexing
+            "metadata": chunk.meta.model_dump(),
+        }
+        chunks_data.append(chunk_data)
 
     if not chunks_data:
         logger.warning(f"No chunks found in {source_file}")
@@ -817,32 +815,51 @@ def generate_chunks_batch(
     transformers_logging.set_verbosity_error()
 
     # Suppress httpx INFO-level logging (HTTP request logs)
-    import logging
-
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     # Suppress IBM WatsonX SDK logging (very verbose)
     logging.getLogger("ibm_watsonx_ai").setLevel(logging.WARNING)
 
     content_dir_path = Path(content_dir)
-    for file in source_files:
-        try:
-            last_file = file
-            generate_chunks_for_document(
-                file,
-                content_dir_path,
-                force=force,
-                skip_context=skip_context,
-                context_model=context_model,
-                openai_url=openai_url,
-                watsonx_url=watsonx_url,
-                context_limit_override=context_limit_override,
-            )
-            successes += 1
-        except Exception as e:
-            errors += 1
-            error_data.append({"file": file, "error": str(e)})
-            logger.error(f"Failed to process {file}: {e}")
+
+    # Create a reusable LLM session for this batch if contextual enrichment is enabled
+    # This avoids creating a new WatsonX/OpenAI client for every document
+    reusable_llm_session = None
+    if not skip_context:
+        reusable_llm_session = LLMSession(
+            model=context_model,
+            openai_url=openai_url,
+            watsonx_url=watsonx_url,
+            context_limit_override=context_limit_override,
+        )
+
+    try:
+        for file in source_files:
+            try:
+                last_file = file
+                generate_chunks_for_document(
+                    file,
+                    content_dir_path,
+                    force=force,
+                    skip_context=skip_context,
+                    context_model=context_model,
+                    openai_url=openai_url,
+                    watsonx_url=watsonx_url,
+                    context_limit_override=context_limit_override,
+                    llm_session=reusable_llm_session,
+                )
+                successes += 1
+            except Exception as e:
+                errors += 1
+                error_data.append({"file": file, "error": str(e)})
+                logger.error(f"Failed to process {file}: {e}")
+    finally:
+        # Clean up the reusable session
+        if reusable_llm_session:
+            try:
+                reusable_llm_session.close()
+            except Exception:
+                pass  # Don't mask exceptions from try block
 
     # Report worker memory footprint.
     process = psutil.Process(os.getpid())

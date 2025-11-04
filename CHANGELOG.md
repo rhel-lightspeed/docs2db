@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Moved routine document analysis logging to DEBUG level; summarization events still logged at INFO level
+- **performance improvement**: LLM API clients (WatsonX, OpenAI) are now reused across documents in the same batch instead of creating new clients for each document
+- `LLMSession.__init__()` no longer takes `doc_text` parameter; call `set_document(doc_text)` after initialization
+- **Breaking change**: `LLM_OPENAI_URL` now defaults to `None` instead of `http://localhost:11434`; users must explicitly set either `LLM_OPENAI_URL` or `LLM_WATSONX_URL` when using contextual chunking
+
+### Fixed
+- Fixed WatsonX rate limiting issues by reusing API clients across documents in worker batches
 
 ## [0.2.1] - 2025-11-03
 
