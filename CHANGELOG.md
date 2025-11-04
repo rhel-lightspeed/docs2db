@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Improved warning messages: metadata parsing errors now include the file path for easier debugging
+
+
 ## [0.2.0] - 2025-11-03
 
 ### Added
