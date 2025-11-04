@@ -939,8 +939,6 @@ def generate_chunks(
 
     if errors > 0:
         logger.error(f"Chunking completed with {errors} errors")
-        logger.info(f"{chunked} files chunked in {end - start:.2f} seconds")
-        return False
 
     logger.info(f"{chunked} files chunked in {end - start:.2f} seconds")
-    return True
+    return errors == 0

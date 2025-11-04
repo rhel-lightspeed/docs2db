@@ -1566,11 +1566,9 @@ async def load_documents(
 
     if errors > 0:
         logger.error(f"Load completed with {errors} errors")
-        logger.info(f"{loaded} files loaded in {end - start:.2f} seconds")
-        return False
 
     logger.info(f"{loaded} files loaded in {end - start:.2f} seconds")
-    return True
+    return errors == 0
 
 
 def dump_database(

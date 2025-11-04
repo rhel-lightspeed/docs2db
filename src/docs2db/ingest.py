@@ -434,7 +434,9 @@ def generate_metadata(
         if content_meta:
             metadata["content"] = content_meta
     except (OSError, json.JSONDecodeError) as e:
-        logger.warning(f"Could not read docling document for metadata: {e}")
+        logger.warning(
+            f"Could not read docling document for metadata from {content_path}: {e}"
+        )
 
     if source_metadata:
         metadata["source"] = source_metadata
@@ -506,8 +508,6 @@ def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool
 
     if errors > 0:
         logger.error(f"Ingestion completed with {errors} errors")
-        logger.info(f"{processed} files processed in {end - start:.2f} seconds")
-        return False
 
     logger.info(f"{processed} files ingested in {end - start:.2f} seconds")
-    return True
+    return errors == 0

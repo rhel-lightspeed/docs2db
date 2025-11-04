@@ -143,8 +143,6 @@ def generate_embeddings(
 
     if errors > 0:
         logger.error(f"Embedding generation completed with {errors} errors")
-        logger.info(f"{embedded} files embedded in {end - start:.2f} seconds")
-        return False
 
     logger.info(f"{embedded} files embedded in {end - start:.2f} seconds")
-    return True
+    return errors == 0
