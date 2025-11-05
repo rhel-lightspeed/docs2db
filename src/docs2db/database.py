@@ -291,26 +291,27 @@ class DatabaseManager:
         """Insert a new model and return its ID.
 
         Returns the model ID if inserted, or existing ID if already exists.
-        Raises DatabaseError if insertion fails.
+        Uses INSERT ... ON CONFLICT to handle concurrent insertions safely.
         """
-        # Check if model already exists
-        result = await conn.execute("SELECT id FROM models WHERE name = %s", [name])
-        row = await result.fetchone()
-        if row:
-            return row[0]
-
-        # Insert new model
+        # Insert model, or do nothing if already exists (atomic operation)
         result = await conn.execute(
             """
             INSERT INTO models (name, dimensions, provider, description)
             VALUES (%s, %s, %s, %s)
+            ON CONFLICT (name) DO NOTHING
             RETURNING id
             """,
             [name, dimensions, provider, description],
         )
         row = await result.fetchone()
+
+        # If ON CONFLICT triggered, fetch existing model ID
         if row is None:
-            raise DatabaseError(f"Failed to insert model: {name}")
+            result = await conn.execute("SELECT id FROM models WHERE name = %s", [name])
+            row = await result.fetchone()
+            if row is None:
+                raise DatabaseError(f"Failed to insert or retrieve model: {name}")
+
         return row[0]
 
     async def get_model_id(self, conn, name: str) -> Optional[int]:

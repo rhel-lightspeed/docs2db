@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Addressed WatsonX rate limiting issues by reusing API clients across documents in worker batches
+- Fixed race condition causing duplicate key errors when multiple workers insert the same embedding model concurrently (now uses `INSERT ... ON CONFLICT DO NOTHING`)
+- Fixed `db-destroy` command to correctly parse project name from `postgres-compose.yml` instead of hardcoding "docs2db" (was failing to remove volumes for projects with different names)
+- Fixed `ingest_file()` to enforce `.json` extension regardless of caller-provided path, ensuring downstream chunking/embedding tools always find correct files
 
 ## [0.2.1] - 2025-11-03
 

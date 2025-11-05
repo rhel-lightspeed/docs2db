@@ -263,7 +263,7 @@ def ingest_file(
 
     Args:
         source_file: Path to the source file to convert
-        content_path: Path where the JSON file should be stored
+        content_path: Path where the JSON file should be stored (extension will be forced to .json)
         source_metadata: Optional metadata about the source
 
     Returns:
@@ -272,26 +272,27 @@ def ingest_file(
     converter = _get_converter()
 
     try:
-        logger.debug(
-            "Converting file", source=str(source_file), target=str(content_path)
-        )
+        # Ensure output path has .json extension (docling saves JSON format)
+        json_path = content_path.with_suffix(".json")
+
+        logger.debug("Converting file", source=str(source_file), target=str(json_path))
 
         # Create the output directory and ensure README exists
-        content_path.parent.mkdir(parents=True, exist_ok=True)
-        ensure_content_dir_readme(content_path.parts[0] if content_path.parts else None)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_content_dir_readme(json_path.parts[0] if json_path.parts else None)
 
         result = converter.convert(source_file)
-        result.document.save_as_json(content_path)
+        result.document.save_as_json(json_path)
 
         logger.debug(
             "Successfully converted file",
             source=str(source_file),
-            target=str(content_path),
+            target=str(json_path),
         )
 
         generate_metadata(
             source_hash=hash_file(source_file),
-            content_path=content_path,
+            content_path=json_path,
             source_file=source_file,
             source_metadata=source_metadata,
         )

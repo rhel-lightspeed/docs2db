@@ -81,6 +81,36 @@ volumes:
         ) from e
 
 
+def get_project_name_from_compose(compose_file: Path) -> str:
+    """Extract project name from compose file.
+
+    Args:
+        compose_file: Path to the compose file
+
+    Returns:
+        Project name
+
+    Raises:
+        OSError: If compose file cannot be read
+        ConfigurationError: If compose file does not contain a "name:" field
+    """
+    with open(compose_file) as f:
+        for line in f:
+            line = line.strip()
+            # Look for "name: <project_name>" at the top of the file
+            if line.startswith("name:"):
+                # Extract the project name (handle quoted and unquoted values)
+                name = line.split(":", 1)[1].strip()
+                # Remove quotes if present
+                name = name.strip('"').strip("'")
+                return name
+
+    raise ConfigurationError(
+        f"No 'name:' field found in compose file: {compose_file}. "
+        f"Please add a project name to the compose file."
+    )
+
+
 def start_database(profile: str = "prod") -> bool:
     """Start PostgreSQL database using Docker/Podman compose.
 
@@ -226,9 +256,12 @@ def destroy_database(profile: str = "prod") -> bool:
     logger.info("Removing database volumes...")
 
     try:
-        # Get the volume name from compose file (typically <dirname>_pgdata)
-        project_name = "docs2db"  # Default from compose file
+        # Get the project name from compose file
+        project_name = get_project_name_from_compose(compose_file)
         volume_name = f"{project_name}_pgdata"
+
+        logger.info(f"Project name: {project_name}")
+        logger.info(f"Attempting to remove volume: {volume_name}")
 
         cmd = [runtime, "volume", "rm", volume_name]
 
@@ -242,7 +275,7 @@ def destroy_database(profile: str = "prod") -> bool:
         if result.returncode == 0:
             logger.info(f"Volume {volume_name} removed successfully")
         else:
-            logger.warning(f"Volume {volume_name} may not exist or already removed")
+            logger.info(f"Volume {volume_name} may not exist or already removed")
 
         logger.info("Database destroyed successfully")
         return True
