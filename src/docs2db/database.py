@@ -1134,24 +1134,17 @@ async def check_database_status(
 async def load_files(
     content_dir: Path, model_name: str, pattern: str, force: bool
 ) -> tuple[int, Iterator[tuple[Path, Path]]]:
-    """Find source files and their corresponding embedding files for loading."""
-    # Find all source files (excluding processed files)
-    embedding_suffixes = [
-        f".{config['keyword']}.json" for config in EMBEDDING_CONFIGS.values()
-    ]
+    """Find source files and their corresponding embedding files for loading.
 
-    def source_files_iter():
-        """Iterator over source files, excluding processed files."""
-        for f in content_dir.glob(pattern):
-            if not f.name.endswith(".chunks.json") and not any(
-                f.name.endswith(suffix) for suffix in embedding_suffixes
-            ):
-                yield f
+    looks for .../doc_dir/source.json files and their
+    corresponding .../doc_dir/chunks.json and .../doc_dir/{keyword}.json files.
+    """
 
     def valid_pairs_iter():
         """Iterator over valid (source_file, embedding_file) pairs."""
-        for source_file in source_files_iter():
-            chunks_file = source_file.with_suffix(".chunks.json")
+        for source_file in content_dir.glob(pattern):
+            # source_file is .../doc_dir/source.json
+            chunks_file = source_file.parent / "chunks.json"
             if not chunks_file.exists():
                 continue
 
@@ -1301,8 +1294,9 @@ async def _load_batch_async(
     files_data = []
     for source_file in file_paths:
         try:
-            # Check for chunks and embedding files
-            chunks_file = source_file.with_suffix(".chunks.json")
+            # Check for chunks and embedding files in subdirectory structure
+            # source_file is .../doc_dir/source.json, chunks is .../doc_dir/chunks.json
+            chunks_file = source_file.parent / "chunks.json"
             if not chunks_file.exists():
                 continue
 
@@ -1380,7 +1374,7 @@ async def load_documents(
     if model_name is None:
         model_name = settings.embedding_model
     if pattern is None:
-        pattern = "**/*.json"
+        pattern = "**/source.json"
 
     start = time.time()
 

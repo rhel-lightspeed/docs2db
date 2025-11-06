@@ -237,21 +237,133 @@ def find_ingestible_files(source_path: Path) -> Iterator[Path]:
 def generate_content_path(source_file: Path, source_root: Path) -> Path:
     """Generate the content directory path for a source file.
 
+    Creates a subdirectory path named after the source file (without extension).
+    The actual source.json filename is added by ingest_file().
+
     Args:
         source_file: The source file to convert
         source_root: The root directory being processed
 
     Returns:
-        Path: The path where the JSON file should be stored
+        Path: The directory path where the document should be stored
     """
     # Get relative path from source root
     relative_path = source_file.relative_to(source_root)
 
-    # Create path in content directory
-    content_path = Path(settings.content_base_dir) / relative_path
+    # Create directory name from filename without extension
+    dir_name = relative_path.stem
 
-    # Change extension to .json
-    return content_path.with_suffix(".json")
+    # Create path: content_dir / parent_dirs / doc_dir
+    content_path = Path(settings.content_base_dir) / relative_path.parent / dir_name
+
+    return content_path
+
+
+def document_needs_update(
+    content_path: Path,
+    source_file: Path | None = None,
+    content: str | bytes | None = None,
+    source_timestamp: str | None = None,
+) -> bool:
+    """Check if a document needs updating.
+
+    Returns True if:
+    - Document doesn't exist
+    - Any provided comparison shows staleness:
+      * source_timestamp is newer than stored timestamp
+      * source_file hash differs from stored hash
+      * content hash differs from stored hash
+
+    Returns False if:
+    - Document exists AND
+    - All provided comparisons show it's current
+
+    If all comparison parameters are None, this is just an existence check.
+
+    Args:
+        content_path: Directory path where the document is stored
+        source_file: Optional source file to compare hash against
+        content: Optional content to compare hash against
+        source_timestamp: Optional timestamp to compare against stored timestamp
+
+    Returns:
+        bool: True if document needs updating, False otherwise
+
+    Examples:
+        # Just check existence
+        if document_needs_update(path):
+            ingest_file(...)
+
+        # Check existence + timestamp staleness
+        if document_needs_update(path, source_timestamp=article.modified):
+            ingest_from_content(...)
+
+        # Check existence + file hash staleness
+        if document_needs_update(path, source_file=local_file):
+            ingest_file(...)
+    """
+    # Check if document exists
+    json_path = content_path / "source.json"
+    if not json_path.exists():
+        return True  # Needs update (doesn't exist)
+
+    # If no comparison parameters provided, document exists so no update needed
+    if source_file is None and content is None and source_timestamp is None:
+        return False
+
+    # Load metadata to get stored hash and timestamp
+    meta_path = content_path / "meta.json"
+    if not meta_path.exists():
+        # Document exists but no metadata - should update
+        return True
+
+    try:
+        with meta_path.open("r") as f:
+            metadata = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        # Can't read metadata - assume needs update
+        return True
+
+    # Check timestamp if provided
+    if source_timestamp is not None:
+        source = metadata.get("source", {})
+        stored_timestamp = source.get("modified")
+
+        if stored_timestamp is None:
+            # Have new timestamp but no stored timestamp - needs update
+            return True
+        if source_timestamp != stored_timestamp:
+            # Timestamp differs - needs update
+            return True
+
+    # Extract stored values from metadata structure
+    processing = metadata.get("processing", {})
+    stored_hash = processing.get("source_hash")
+
+    # Check source file hash if provided
+    if source_file is not None:
+        if stored_hash is None:
+            # Have source file but no stored hash - needs update
+            return True
+        current_hash = hash_file(source_file)
+        if current_hash != stored_hash:
+            # Hash differs - needs update
+            return True
+
+    # Check content hash if provided
+    if content is not None:
+        if stored_hash is None:
+            # Have content but no stored hash - needs update
+            return True
+        current_hash = hash_bytes(
+            content if isinstance(content, bytes) else content.encode("utf-8")
+        )
+        if current_hash != stored_hash:
+            # Hash differs - needs update
+            return True
+
+    # All checks passed - document is current
+    return False
 
 
 def ingest_file(
@@ -263,7 +375,7 @@ def ingest_file(
 
     Args:
         source_file: Path to the source file to convert
-        content_path: Path where the JSON file should be stored (extension will be forced to .json)
+        content_path: Directory path where the document should be stored (source.json will be created inside)
         source_metadata: Optional metadata about the source
 
     Returns:
@@ -272,8 +384,8 @@ def ingest_file(
     converter = _get_converter()
 
     try:
-        # Ensure output path has .json extension (docling saves JSON format)
-        json_path = content_path.with_suffix(".json")
+        # Create the full path to source.json in the provided directory
+        json_path = content_path / "source.json"
 
         logger.debug("Converting file", source=str(source_file), target=str(json_path))
 
@@ -307,7 +419,7 @@ def ingest_file(
 def ingest_from_content(
     content: str | bytes,
     content_path: Path,
-    stream_name: str | None = None,
+    stream_name: str,
     source_metadata: dict[str, Any] | None = None,
     content_encoding: str = "utf-8",
 ) -> bool:
@@ -319,8 +431,8 @@ def ingest_from_content(
 
     Args:
         content: The content to convert (HTML, markdown, etc).
-        content_path: Path to store JSON (relative to content_base_dir).
-        stream_name: If None, uses content_path filename.
+        content_path: Directory path where the document should be stored (source.json will be created inside).
+        stream_name: Stream name with extension for docling to detect format (e.g., "doc.html", "article.md").
         source_metadata: Source metadata (URL, etag, license, etc).
         content_encoding: Defaults to "utf-8".
 
@@ -329,17 +441,16 @@ def ingest_from_content(
 
     """
     try:
-        if stream_name is None:
-            stream_name = content_path.name
+        # Create the full path to source.json in the provided directory
+        json_path = content_path / "source.json"
 
-        logger.debug("Converting content", target=str(content_path), stream=stream_name)
+        logger.debug("Converting content", target=str(json_path), stream=stream_name)
 
         # Convert string content to bytes if needed
         if isinstance(content, str):
             content = content.encode(content_encoding)
 
         # Create document stream and convert
-        json_path = content_path.with_suffix(".json")
         json_path.parent.mkdir(parents=True, exist_ok=True)
         ensure_content_dir_readme(json_path.parts[0] if json_path.parts else None)
 
@@ -443,7 +554,8 @@ def generate_metadata(
         metadata["source"] = source_metadata
 
     # Save metadata (sparse - only non-empty sections)
-    meta_path = content_path.with_suffix(".meta.json")
+    # content_path is .../doc_dir/source.json, so meta goes to .../doc_dir/meta.json
+    meta_path = content_path.parent / "meta.json"
     try:
         with open(meta_path, "w") as f:
             json.dump(metadata, f, indent=2)

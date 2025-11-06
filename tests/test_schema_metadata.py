@@ -56,7 +56,7 @@ class TestSchemaMetadata:
         success = await load_documents(
             content_dir=str(fixtures_dir),
             model_name="granite-30m-english",
-            pattern="**/*.json",
+            pattern="**/source.json",
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],
@@ -94,7 +94,7 @@ class TestSchemaMetadata:
         success = await load_documents(
             content_dir=str(fixtures_dir),
             model_name="granite-30m-english",
-            pattern="**/*.json",
+            pattern="**/source.json",
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],
@@ -126,7 +126,7 @@ class TestSchemaMetadata:
         success = await load_documents(
             content_dir=str(fixtures_dir),
             model_name="granite-30m-english",
-            pattern="**/*.json",
+            pattern="**/source.json",
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],

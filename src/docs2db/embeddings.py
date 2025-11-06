@@ -404,6 +404,14 @@ class E5EmbeddingProvider(EmbeddingProvider):
 
 
 EMBEDDING_CONFIGS = {
+    "granite-30m-english": {
+        "keyword": "gran",
+        "model_id": "ibm-granite/granite-embedding-30m-english",
+        "dimensions": 384,
+        "provider": "granite",
+        "batch_size": 64,
+        "cls": GraniteEmbeddingProvider,
+    },
     "slate-125m-english-rtrvr-v2": {
         "keyword": "slate",
         "model_id": "ibm/slate-125m-english-rtrvr-v2",
@@ -428,18 +436,14 @@ EMBEDDING_CONFIGS = {
         "batch_size": 32,
         "cls": E5EmbeddingProvider,
     },
-    "granite-30m-english": {
-        "keyword": "gran",
-        "model_id": "ibm-granite/granite-embedding-30m-english",
-        "dimensions": 384,
-        "provider": "granite",
-        "batch_size": 64,
-        "cls": GraniteEmbeddingProvider,
-    },
 }
 
 
 def create_embedding_filename(chunks_file: Path, model_name: str) -> Path:
-    """Create an embedding filename by replacing .chunks. with .{keyword}."""
+    """Create an embedding filename using model keyword.
+
+    chunks_file is .../doc_dir/chunks.json
+    Returns .../doc_dir/{keyword}.json (e.g., gran.json, slate.json)
+    """
     keyword = EMBEDDING_CONFIGS[model_name]["keyword"]
-    return Path(str(chunks_file).replace(".chunks.", f".{keyword}."))
+    return chunks_file.parent / f"{keyword}.json"

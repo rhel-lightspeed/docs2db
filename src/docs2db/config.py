@@ -20,11 +20,11 @@ class Settings(BaseSettings):
     watsonx_project_id: str = ""
 
     # Chunking Settings
-    chunking_pattern: str = "**/*.json"
+    chunking_pattern: str = "**/source.json"
 
     # Embedding Settings
     embedding_model: str = "granite-30m-english"
-    embedding_pattern: str = "**/*.chunks.json"
+    embedding_pattern: str = "**/chunks.json"
 
     class Config:
         env_file = ".env"

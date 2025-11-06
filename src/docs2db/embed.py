@@ -17,18 +17,13 @@ logger = structlog.get_logger(__name__)
 
 
 def chunks_files(content_dir: str, pattern: str) -> tuple[int, Iterator[Path]]:
-    """Return chunks files, filtering to only .chunks.json files."""
+    """Return chunks files."""
     content_path = Path(content_dir)
     if not content_path.exists():
         raise FileNotFoundError(f"Directory does not exist: {content_dir}")
 
-    def chunks_files():
-        return (
-            f for f in content_path.glob(pattern) if f.name.endswith(".chunks.json")
-        )
-
-    count = sum(1 for _ in chunks_files())
-    return count, chunks_files()
+    count = sum(1 for _ in content_path.glob(pattern))
+    return count, content_path.glob(pattern)
 
 
 def generate_embeddings_batch(

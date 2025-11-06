@@ -12,7 +12,7 @@ The `ingest_from_content()` function allows you to ingest in-memory content with
 def ingest_from_content(
     content: str | bytes,
     content_path: Path,
-    stream_name: str | None = None,
+    stream_name: str,
     source_metadata: dict[str, Any] | None = None,
     content_encoding: str = "utf-8",
 ) -> bool:
@@ -20,8 +20,8 @@ def ingest_from_content(
 
     Args:
         content: The content to convert (HTML, markdown, etc). Can be string or bytes.
-        content_path: Path where the JSON file should be stored (relative to content_base_dir).
-        stream_name: Name for the document stream. If None, uses content_path filename.
+        content_path: Directory path where the document should be stored (source.json will be created inside).
+        stream_name: Stream name with extension for docling to detect format (e.g., "doc.html", "article.md").
         source_metadata: Optional metadata about the source (URL, etag, license, etc).
         content_encoding: Encoding to use for string content. Defaults to "utf-8".
 
@@ -52,28 +52,29 @@ source_metadata = {
 # Ingest the content
 success = ingest_from_content(
     content=html_content,
-    content_path=Path("content/documentation/exampletech/9/guide.html"),
+    content_path=Path("content/documentation/exampletech/9/guide"),
+    stream_name="guide.html",  # Extension tells docling this is HTML
     source_metadata=source_metadata,
 )
 
 if success:
     print("✅ Document ingested successfully!")
     # Files created:
-    #   - content/documentation/exampletech/9/guide.json (Docling JSON)
-    #   - content/documentation/exampletech/9/guide.meta.json (Metadata)
+    #   - content/documentation/exampletech/9/guide/source.json (Docling JSON)
+    #   - content/documentation/exampletech/9/guide/meta.json (Metadata)
 ```
 
 ## What Gets Created
 
-When you call `ingest_from_content()`, two files are created:
+When you call `ingest_from_content()`, two files are created in the specified directory:
 
-### 1. Docling JSON (`.json`)
+### 1. Docling JSON (`source.json`)
 The structured document representation created by Docling, containing:
 - Document text and structure
 - Layout information
 - Extracted metadata (title, language, etc.)
 
-### 2. Metadata file (`.meta.json`)
+### 2. Metadata file (`meta.json`)
 A sparse, versioned metadata file containing:
 
 ```json

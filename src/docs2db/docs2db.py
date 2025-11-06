@@ -365,7 +365,12 @@ def audit(
     content_dir: Annotated[
         str | None, typer.Option(help="Path to content directory")
     ] = None,
-    pattern: Annotated[str, typer.Option(help="File pattern to process")] = "**/*.json",
+    pattern: Annotated[
+        str,
+        typer.Option(
+            help="Directory pattern to audit (e.g., 'external/**' or 'additional_documents/*')"
+        ),
+    ] = "**",
 ) -> None:
     """Audit to find missing and stale files."""
     try:

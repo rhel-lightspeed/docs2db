@@ -101,13 +101,13 @@ def is_chunks_stale(chunks_file: Path, source_file: Path) -> bool:
 
 def source_files(
     content_dir: str,
-    pattern: str = "**/*.json",
+    pattern: str = "**/source.json",
 ) -> tuple[int, Iterator[Path]]:
-    """Return source files, ignoring chunk and embed files.
+    """Return source files from subdirectory structure.
 
     Args:
         content_dir: Path to the content directory to search
-        pattern: Glob pattern for file matching (default: "**/*.json")
+        pattern: Glob pattern for file matching (default: "**/source.json")
 
     Returns:
         tuple[int, Iterator[Path]]: Count of matching files and iterator of Path objects
@@ -117,19 +117,8 @@ def source_files(
     if not content.exists():
         raise FileNotFoundError(f"Content directory does not exist: {content_dir}")
 
-    # Ignore chunk, embed, and metadata files - only process Docling JSON files
-    def source_files_iter():
-        return (
-            f
-            for f in content.glob(pattern)
-            if f.suffix == ".json"
-            and not f.name.endswith(".chunks.json")
-            and not f.name.endswith(".gran.json")
-            and not f.name.endswith(".meta.json")
-        )
-
-    count = sum(1 for _ in source_files_iter())
-    return count, source_files_iter()
+    count = sum(1 for _ in content.glob(pattern))
+    return count, content.glob(pattern)
 
 
 def estimate_tokens(text: str) -> int:
@@ -686,7 +675,8 @@ def generate_chunks_for_document(
         Path to generated chunks file
     """
     source_file = Path(source_str)
-    chunks_file = source_file.with_suffix(".chunks.json")
+    # source_file is .../doc_dir/source.json, chunks go to .../doc_dir/chunks.json
+    chunks_file = source_file.parent / "chunks.json"
 
     if not force and not is_chunks_stale(chunks_file, source_file):
         return chunks_file

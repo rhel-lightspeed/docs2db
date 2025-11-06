@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `document_needs_update()` function for external API callers to check if documents need updating without knowing internal storage details
+- Enhanced audit reporting with separate tracking for stale chunks and stale embeddings
+- Zero-chunk document detection in audit (documents that legitimately have no chunks)
+- Orphan directory detection in audit (directories without `source.json`)
+- Audit command now accepts directory patterns for targeted auditing (e.g., `--pattern "external/**"` or `--pattern "allowed_kcs/*"`)
+
 ### Changed
+- **BREAKING**: File storage now uses subdirectory-based structure where each document gets its own directory:
+  - Old: `doc_name.json`, `doc_name.chunks.json`, `doc_name.gran.json`
+  - New: `doc_name/source.json`, `doc_name/chunks.json`, `doc_name/gran.json`
+- **BREAKING**: `ingest_from_content()` now requires `stream_name` parameter (e.g., `"document.html"`) for proper format detection
+- **BREAKING**: `ingest_file()` and `ingest_from_content()` now accept directory paths instead of file paths (e.g., `content_dir/doc_name` not `content_dir/doc_name/source.json`)
+- **BREAKING**: Default glob patterns changed to `**/source.json` (for chunking) and `**/chunks.json` (for embedding)
+- Audit command default pattern changed from `**/*.json` to `**` (directory-based pattern)
+- Audit now validates that patterns don't include file extensions (must match directories only)
+- Audit results now show separate counts for chunks, embeddings, and zero-chunk documents
 - Moved routine document analysis logging to DEBUG level; summarization events still logged at INFO level
 - **performance improvement**: LLM API clients (WatsonX, OpenAI) are now reused across documents in the same batch instead of creating new clients for each document
 - `LLMSession.__init__()` no longer takes `doc_text` parameter; call `set_document(doc_text)` after initialization

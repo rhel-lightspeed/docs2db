@@ -71,7 +71,7 @@ class TestDatabaseSQL:
             success = await load_documents(
                 content_dir=temp_dir,
                 model_name="granite-30m-english",
-                pattern="**/*.json",
+                pattern="**/source.json",
                 host=config["host"],
                 port=int(config["port"]),
                 db=config["database"],
@@ -99,7 +99,7 @@ class TestDatabaseSQL:
         assert await load_documents(
             content_dir=str(fixtures_dir),
             model_name="granite-30m-english",
-            pattern="**/*.json",
+            pattern="**/source.json",
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],
@@ -130,7 +130,7 @@ class TestDatabaseSQL:
             success1 = await load_documents(
                 content_dir=temp_dir,
                 model_name="granite-30m-english",
-                pattern="**/*.json",
+                pattern="**/source.json",
                 host=config["host"],
                 port=int(config["port"]),
                 db=config["database"],
@@ -143,7 +143,7 @@ class TestDatabaseSQL:
             success2 = await load_documents(
                 content_dir=temp_dir,
                 model_name="granite-30m-english",
-                pattern="**/*.json",
+                pattern="**/source.json",
                 host=config["host"],
                 port=int(config["port"]),
                 db=config["database"],
@@ -169,7 +169,7 @@ class TestDatabaseSQL:
             assert await load_documents(
                 content_dir=temp_dir,
                 model_name="granite-30m-english",
-                pattern="**/*.json",
+                pattern="**/source.json",
                 host=config["host"],
                 port=int(config["port"]),
                 db=config["database"],
@@ -218,7 +218,7 @@ class TestDatabaseSQL:
                 success = await load_documents(
                     content_dir=temp_dir,
                     model_name="granite-30m-english",
-                    pattern="**/*.json",
+                    pattern="**/source.json",
                     host=config["host"],
                     port=int(config["port"]),
                     db=config["database"],
@@ -264,7 +264,7 @@ class TestDatabaseSQL:
             assert await load_documents(
                 content_dir=temp_dir,
                 model_name="granite-30m-english",
-                pattern="**/*.json",
+                pattern="**/source.json",
                 host=config["host"],
                 port=int(config["port"]),
                 db=config["database"],
