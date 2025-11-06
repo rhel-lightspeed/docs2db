@@ -65,7 +65,7 @@ class TestCLIIntegrationSQL:
                 "--model",
                 "granite-30m-english",
                 "--pattern",
-                "**/source.json",
+                "**",
                 "--host",
                 config["host"],
                 "--port",

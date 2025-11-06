@@ -31,13 +31,12 @@ def perform_audit(
         content_dir: Path to content directory (defaults to settings.content_base_dir)
         pattern: Directory pattern to audit (e.g., "external/**" or "additional_documents/*")
                 Defaults to "**" which audits all directories.
-                Pattern should NOT include file extensions - audit always looks for source.json.
 
     Returns:
         True if all files present and up-to-date, False if issues detected
 
     Raises:
-        ContentError: If content directory does not exist or pattern contains file extension
+        ContentError: If content directory does not exist or pattern doesn't end with glob wildcard
     """
 
     if content_dir is None:
@@ -45,11 +44,11 @@ def perform_audit(
     if pattern is None:
         pattern = "**"
 
-    # Validate that pattern doesn't contain file extensions
-    if any(ext in pattern for ext in [".json", ".html", ".md", ".txt", ".pdf"]):
+    # Validate that pattern ends with a glob wildcard (** or *)
+    if not (pattern.endswith("**") or pattern.endswith("*")):
         raise ContentError(
-            f"Pattern should specify directories, not files. "
-            f"Got: '{pattern}'. Example: 'external/**' or 'additional_documents/*'"
+            f"Pattern must end with '**' or '*' to match directories. "
+            f"Got: '{pattern}'. Examples: 'external/**', 'additional_documents/*', '**'"
         )
 
     # Always append /source.json to look for source files in matching directories

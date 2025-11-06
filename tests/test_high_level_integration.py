@@ -247,7 +247,7 @@ class TestHighLevelIntegrationSQL:
         success = await load_documents(
             content_dir=str(content_dir),
             model_name="granite-30m-english",
-            pattern="**/source.json",
+            pattern="**",
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],
@@ -327,7 +327,7 @@ class TestHighLevelIntegrationSQL:
         success = await load_documents(
             content_dir=str(content_dir),
             model_name="granite-30m-english",
-            pattern="**/source.json",
+            pattern="**",
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],
@@ -363,7 +363,7 @@ class TestHighLevelIntegrationSQL:
         success = await load_documents(
             content_dir=str(content_dir),
             model_name="granite-30m-english",
-            pattern="**/source.json",
+            pattern="**",
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],

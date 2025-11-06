@@ -166,8 +166,11 @@ def load(
         typer.Option(help="Embedding model to load (granite-30m-english)"),
     ] = None,
     pattern: Annotated[
-        str, typer.Option(help="File pattern for source files")
-    ] = "**/*.json",
+        str,
+        typer.Option(
+            help="Directory pattern for documents (e.g., 'external/**' or 'additional_documents/*')"
+        ),
+    ] = "**",
     force: Annotated[
         bool, typer.Option(help="Force reload of existing documents")
     ] = False,

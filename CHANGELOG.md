@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-11-06
+
+### Changed
+- **BREAKING**: `load` command now uses directory-based patterns (must end with `**` or `*`) instead of file patterns
+  - Old: `--pattern "**/source.json"` or `--pattern "**/*.json"`
+  - New: `--pattern "**"` or `--pattern "external/**"`
+  - Patterns are automatically converted to match `source.json` files internally
+- `load` command default pattern changed from `**/*.json` to `**` (directory-based)
+- Pattern validation now checks for proper glob wildcard structure instead of file extensions
+
 ## [0.3.0] - 2025-11-06
 
 ### Added
@@ -96,7 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite
 - Development tooling: Makefile, Docker Compose setup for PostgreSQL
 
-[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/rhel-lightspeed/docs2db/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/rhel-lightspeed/docs2db/compare/v0.1.0...v0.2.0

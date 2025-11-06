@@ -984,7 +984,7 @@ async def check_database_status(
         else:
             logger.error(
                 "pgvector extension not installed. "
-                "Run 'uv run docs2db load' to initialize"
+                "Run 'uv run docs2db load' or 'uv run docs2db db-restore' to initialize"
             )
             raise DatabaseError("pgvector extension not installed")
 
@@ -1005,7 +1005,9 @@ async def check_database_status(
             logger.info("All required tables exist")
         elif len(tables) > 0:
             logger.error(
-                "Partial schema found. Run 'uv run docs2db load' to initialize"
+                "Partial schema found. Recommend running "
+                "'uv run docs2db db-destroy' to clear, then running "
+                "'uv run docs2db load' or 'uv run docs2db db-restore' to initialize"
             )
             raise DatabaseError("Partial schema found")
         else:
@@ -1351,7 +1353,8 @@ async def load_documents(
     Args:
         content_dir: Directory containing content files (defaults to settings.content_base_dir)
         model_name: Embedding model name (defaults to settings.embedding_model)
-        pattern: File pattern to match (defaults to "**/*.json")
+        pattern: Directory pattern to match (e.g., "external/**" or "additional_documents/*")
+                 Defaults to "**" which loads all documents.
         host: Database host (auto-detected from compose file if None)
         port: Database port (auto-detected from compose file if None)
         db: Database name (auto-detected from compose file if None)
@@ -1365,7 +1368,7 @@ async def load_documents(
 
     Raises:
         ConfigurationError: If model is unknown or configuration is invalid
-        ContentError: If content directory does not exist
+        ContentError: If content directory does not exist or pattern doesn't end with glob wildcard
         DatabaseError: If database operations fail
     """
 
@@ -1374,7 +1377,20 @@ async def load_documents(
     if model_name is None:
         model_name = settings.embedding_model
     if pattern is None:
-        pattern = "**/source.json"
+        pattern = "**"
+
+    # Validate that pattern ends with a glob wildcard (** or *)
+    if not (pattern.endswith("**") or pattern.endswith("*")):
+        raise ContentError(
+            f"Pattern must end with '**' or '*' to match directories. "
+            f"Got: '{pattern}'. Examples: 'external/**', 'additional_documents/*', '**'"
+        )
+
+    logger.info(f"Loading from content_dir: {content_dir}")
+    logger.info(f"Using directory pattern: {pattern}")
+
+    # Always append /source.json to look for source files in matching directories
+    pattern = f"{pattern}/source.json"
 
     start = time.time()
 
