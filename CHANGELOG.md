@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-11-06
+
 ### Added
 - `document_needs_update()` function for external API callers to check if documents need updating without knowing internal storage details
 - Enhanced audit reporting with separate tracking for stale chunks and stale embeddings
@@ -94,7 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite
 - Development tooling: Makefile, Docker Compose setup for PostgreSQL
 
-[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/rhel-lightspeed/docs2db/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/rhel-lightspeed/docs2db/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rhel-lightspeed/docs2db/releases/tag/v0.1.0
