@@ -70,7 +70,7 @@ class TestDatabaseSQL:
             # Load from empty directory - should succeed but load nothing
             success = await load_documents(
                 content_dir=temp_dir,
-                model_name="granite-30m-english",
+                model_name="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
                 host=config["host"],
                 port=int(config["port"]),
@@ -98,7 +98,7 @@ class TestDatabaseSQL:
 
         assert await load_documents(
             content_dir=str(fixtures_dir),
-            model_name="granite-30m-english",
+            model_name="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),
@@ -129,7 +129,7 @@ class TestDatabaseSQL:
             # Test with force=False
             success1 = await load_documents(
                 content_dir=temp_dir,
-                model_name="granite-30m-english",
+                model_name="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
                 host=config["host"],
                 port=int(config["port"]),
@@ -142,7 +142,7 @@ class TestDatabaseSQL:
             # Test with force=True
             success2 = await load_documents(
                 content_dir=temp_dir,
-                model_name="granite-30m-english",
+                model_name="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
                 host=config["host"],
                 port=int(config["port"]),
@@ -168,7 +168,7 @@ class TestDatabaseSQL:
         with tempfile.TemporaryDirectory() as temp_dir:
             assert await load_documents(
                 content_dir=temp_dir,
-                model_name="granite-30m-english",
+                model_name="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
                 host=config["host"],
                 port=int(config["port"]),
@@ -217,7 +217,7 @@ class TestDatabaseSQL:
             try:
                 success = await load_documents(
                     content_dir=temp_dir,
-                    model_name="granite-30m-english",
+                    model_name="ibm-granite/granite-embedding-30m-english",
                     pattern="**",
                     host=config["host"],
                     port=int(config["port"]),
@@ -263,7 +263,7 @@ class TestDatabaseSQL:
         with tempfile.TemporaryDirectory() as temp_dir:
             assert await load_documents(
                 content_dir=temp_dir,
-                model_name="granite-30m-english",
+                model_name="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
                 host=config["host"],
                 port=int(config["port"]),

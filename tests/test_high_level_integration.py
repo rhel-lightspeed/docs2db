@@ -194,7 +194,7 @@ class TestHighLevelIntegrationSQL:
         # Test initial embedding
         success = generate_embeddings(
             str(content_dir),
-            "granite-30m-english",
+            "ibm-granite/granite-embedding-30m-english",
             "**/chunks.json",
             force=False,
         )
@@ -246,7 +246,7 @@ class TestHighLevelIntegrationSQL:
 
         success = await load_documents(
             content_dir=str(content_dir),
-            model_name="granite-30m-english",
+            model_name="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),
@@ -311,7 +311,7 @@ class TestHighLevelIntegrationSQL:
         # Test embedding idempotency
         success = generate_embeddings(
             str(content_dir),
-            "granite-30m-english",
+            "ibm-granite/granite-embedding-30m-english",
             "**/chunks.json",
             force=False,
         )
@@ -326,7 +326,7 @@ class TestHighLevelIntegrationSQL:
         # Test database load idempotency
         success = await load_documents(
             content_dir=str(content_dir),
-            model_name="granite-30m-english",
+            model_name="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),
@@ -354,7 +354,7 @@ class TestHighLevelIntegrationSQL:
 
         success = generate_embeddings(
             str(content_dir),
-            "granite-30m-english",
+            "ibm-granite/granite-embedding-30m-english",
             "**/*.chunks.json",
             force=True,
         )
@@ -362,7 +362,7 @@ class TestHighLevelIntegrationSQL:
 
         success = await load_documents(
             content_dir=str(content_dir),
-            model_name="granite-30m-english",
+            model_name="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),

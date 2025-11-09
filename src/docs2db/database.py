@@ -549,7 +549,6 @@ class DatabaseManager:
 
         model_name = files_data[0][2]  # model is 3rd element in tuple
         model_config = EMBEDDING_CONFIGS.get(model_name, {})
-        model_full_name = model_config.get("model_id", model_name)
         model_dimensions = model_config.get("dimensions", 0)
         model_provider = model_config.get("provider")
 
@@ -557,7 +556,7 @@ class DatabaseManager:
         async with await self.get_direct_connection() as conn:
             model_id = await self.insert_model(
                 conn,
-                name=model_full_name,
+                name=model_name,
                 dimensions=model_dimensions,
                 provider=model_provider,
                 description=f"Embedding model: {model_name}",
@@ -1106,7 +1105,7 @@ async def check_database_status(
         async with await db_manager.get_direct_connection() as conn:
             recent_result = await conn.execute("""
                 SELECT
-                    filename,
+                    path,
                     created_at,
                     updated_at
                 FROM documents
@@ -1116,8 +1115,10 @@ async def check_database_status(
 
             file_str = ""
             async for row in recent_result:
-                filename, created_at, updated_at = row
-                file_str += f"  {filename}\n    created: {created_at.strftime('%Y-%m-%d %H:%M')}\n    updated: {updated_at.strftime('%Y-%m-%d %H:%M') if updated_at else 'Never'}\n"
+                path, created_at, updated_at = row
+                # Strip /source.json suffix for cleaner display
+                display_path = path.removesuffix("/source.json")
+                file_str += f"  {display_path}\n    created: {created_at.strftime('%Y-%m-%d %H:%M')}\n    updated: {updated_at.strftime('%Y-%m-%d %H:%M') if updated_at else 'Never'}\n"
             logger.info(f"\nRecent document activity (last 5)\n{file_str}")
 
         # Database size information
@@ -1478,10 +1479,6 @@ async def load_documents(
 
     logger.info(f"Found {count} embedding files for model: {model_name}")
 
-    # Get model full name from config (EMBEDDING_CONFIGS imported at top of function)
-    model_config = EMBEDDING_CONFIGS.get(model_name, {})
-    model_full_name = model_config.get("model_id", model_name)
-
     # Count records BEFORE the operation starts
     async with await db_manager.get_direct_connection() as conn:
         result = await conn.execute("SELECT COUNT(*) FROM documents")
@@ -1498,7 +1495,7 @@ async def load_documents(
 
         # Check if this model already exists in models table
         result = await conn.execute(
-            "SELECT COUNT(*) FROM models WHERE name = %s", [model_full_name]
+            "SELECT COUNT(*) FROM models WHERE name = %s", [model_name]
         )
         row = await result.fetchone()
         model_existed_before = (row[0] if row else 0) > 0
@@ -1565,7 +1562,7 @@ async def load_documents(
             # Check if this model is new (didn't exist before, exists now)
             embedding_models_added = []
             if not model_existed_before and embeddings_added_count > 0:
-                embedding_models_added = [model_full_name]
+                embedding_models_added = [model_name]
 
             # Insert change record with all statistics
             await db_manager.insert_schema_change(

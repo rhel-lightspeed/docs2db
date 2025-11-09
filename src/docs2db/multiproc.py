@@ -310,6 +310,16 @@ class BatchProcessor:
             self._process_successful_result(result, worker_id, batch)
             return self._check_memory_restart(result, worker_id)
         except Exception as e:
+            # Log more detail for BrokenProcessPool errors
+            from concurrent.futures.process import BrokenProcessPool
+
+            if isinstance(e, BrokenProcessPool):
+                logger.error(
+                    f"Worker process terminated abruptly (BrokenProcessPool). "
+                    f"This usually indicates: (1) Worker ran out of memory, "
+                    f"(2) Segmentation fault, or (3) Fatal exception in worker initialization. "
+                    f"Worker {worker_id} was processing batch: {batch[:3]}"
+                )
             self._process_failed_result(e, worker_id, batch)
             return False
 
@@ -334,6 +344,14 @@ class BatchProcessor:
     def _process_failed_result(self, error, worker_id: int, batch):
         """Update error tracking and displays for a failed batch result."""
         assert isinstance(self.display, ProgressDisplay)
+
+        # Log detailed error information
+        logger.error(
+            f"Worker {worker_id} failed processing batch: {error}",
+            exc_info=True,
+            extra={"batch_files": batch[:3], "error_type": type(error).__name__},
+        )
+
         for file in batch:
             self.error_data.append({"file": file, "error": error})
             self.processed += 1

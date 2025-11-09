@@ -8,5 +8,5 @@
             }
         }
     ],
-    "model": "granite-30m-english"
+    "model": "ibm-granite/granite-embedding-30m-english"
 }

@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     chunking_pattern: str = "**/source.json"
 
     # Embedding Settings
-    embedding_model: str = "granite-30m-english"
+    embedding_model: str = "ibm-granite/granite-embedding-30m-english"
     embedding_pattern: str = "**/chunks.json"
 
     class Config:

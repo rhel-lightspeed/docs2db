@@ -847,17 +847,59 @@ def generate_chunks_batch(
 
     content_dir_path = Path(content_dir)
 
-    # Create a reusable LLM session for this batch if contextual enrichment is enabled
-    # This avoids creating a new WatsonX/OpenAI client for every document
+    # Lazy initialization: Only create LLM session if we actually need it
+    # First check if any files in this batch need processing
     reusable_llm_session = None
+    llm_session_needed = False
+
     if not skip_context:
-        reusable_llm_session = LLMSession(
-            model=context_model,
-            provider=provider,
-            openai_url=openai_url,
-            watsonx_url=watsonx_url,
-            context_limit_override=context_limit_override,
-        )
+        # Quick check: do any files in this batch need processing?
+        for file in source_files:
+            source_file = Path(file)
+            chunks_file = source_file.parent / "chunks.json"
+            if force or is_chunks_stale(chunks_file, source_file):
+                llm_session_needed = True
+                break
+
+        # Only create LLM session if we found files that need processing
+        if llm_session_needed:
+            try:
+                logger.info(
+                    f"Creating LLM session: provider={provider}, model={context_model}, "
+                    f"watsonx_url={watsonx_url}, openai_url={openai_url}"
+                )
+                reusable_llm_session = LLMSession(
+                    model=context_model,
+                    provider=provider,
+                    openai_url=openai_url,
+                    watsonx_url=watsonx_url,
+                    context_limit_override=context_limit_override,
+                )
+                logger.info("✅ LLM session created successfully")
+            except Exception as e:
+                logger.error(
+                    f"❌ FATAL: Failed to create LLM session in worker process: {e}",
+                    exc_info=True,
+                )
+                # Return early with error - worker cannot continue without LLM session
+                return {
+                    "successes": 0,
+                    "errors": len(source_files),
+                    "error_data": [
+                        {
+                            "file": f,
+                            "error": f"Worker failed to initialize LLM session: {e}",
+                        }
+                        for f in source_files
+                    ],
+                    "last_file": "",
+                    "memory": 0,
+                    "worker_logs": log_collector.logs,
+                }
+        else:
+            logger.info(
+                "All files in batch already processed, skipping LLM session creation"
+            )
 
     try:
         for file in source_files:

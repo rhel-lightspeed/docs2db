@@ -404,33 +404,29 @@ class E5EmbeddingProvider(EmbeddingProvider):
 
 
 EMBEDDING_CONFIGS = {
-    "granite-30m-english": {
+    "ibm-granite/granite-embedding-30m-english": {
         "keyword": "gran",
-        "model_id": "ibm-granite/granite-embedding-30m-english",
         "dimensions": 384,
         "provider": "granite",
         "batch_size": 64,
         "cls": GraniteEmbeddingProvider,
     },
-    "slate-125m-english-rtrvr-v2": {
+    "ibm/slate-125m-english-rtrvr-v2": {
         "keyword": "slate",
-        "model_id": "ibm/slate-125m-english-rtrvr-v2",
         "dimensions": 768,
         "provider": "watson",
         "batch_size": 2000,
         "cls": WatsonEmbeddingProvider,
     },
-    "NoInstruct-small-Embedding-v0": {
+    "avsolatorio/NoInstruct-small-Embedding-v0": {
         "keyword": "noins",
-        "model_id": "avsolatorio/NoInstruct-small-Embedding-v0",
         "dimensions": 384,
         "provider": "noinstruct",
         "batch_size": 32,
         "cls": NoInstructEmbeddingProvider,
     },
-    "e5-small-v2": {
+    "intfloat/e5-small-v2": {
         "keyword": "e5sm",
-        "model_id": "intfloat/e5-small-v2",
         "dimensions": 384,
         "provider": "e5",
         "batch_size": 32,

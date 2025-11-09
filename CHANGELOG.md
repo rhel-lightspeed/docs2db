@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `db-status` now displays document paths instead of filenames in "Recent document activity" section for better identification in subdirectory structure
+
 ## [0.3.1] - 2025-11-06
 
 ### Changed

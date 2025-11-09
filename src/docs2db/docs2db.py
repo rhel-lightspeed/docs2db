@@ -163,7 +163,9 @@ def load(
     ] = None,
     model: Annotated[
         str | None,
-        typer.Option(help="Embedding model to load (granite-30m-english)"),
+        typer.Option(
+            help="Embedding model to load (e.g., ibm-granite/granite-embedding-30m-english)"
+        ),
     ] = None,
     pattern: Annotated[
         str,
