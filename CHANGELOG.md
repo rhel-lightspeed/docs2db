@@ -7,8 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-11-11
+
 ### Changed
+- **BREAKING**: Model identification consolidated - `model_name` and `model_id` merged into single `model` term throughout codebase
+- **BREAKING**: Embedding metadata structure flattened:
+  - Old: `metadata.model.model_id`, `metadata.embedding.created_at`
+  - New: `metadata.model`, `metadata.embedded_at`
+  - Existing embedding files automatically detected as stale and regenerated
+- **Pattern handling standardized** across all commands (`chunk`, `embed`, `load`, `audit`):
+  - Commands now accept directory patterns without requiring wildcards
+  - Automatically appends `/source.json` or `/chunks.json` to patterns
+  - Examples: `--pattern "docs/subdir"` (exact path) or `--pattern "external/**"` (glob)
+  - Old strict wildcard validation removed
 - `db-status` now displays document paths instead of filenames in "Recent document activity" section for better identification in subdirectory structure
+- Audit command now shows full relative paths from content directory instead of just directory names for better error reporting
+
+### Added
+- Environment variable support for debug logging: `DEBUG=1` or `LOG_LEVEL=DEBUG`
+- Improved logging: "Creating LLM session" and batch processing messages moved to DEBUG level
+- README improvements:
+  - New "Overview" section explaining processing time, stages, idempotency, and storage
+  - Updated "Requirements" section clarifying Ollama's role (optional for contextual chunking)
+  - Library usage examples for `ingest_file()` and `ingest_from_content()` functions
+  - "Serving Your Database" section with docs2db-api integration examples
+
+### Fixed
+- BatchProcessor now accepts sorted lists instead of iterators to ensure file processing order across restarts
+- Removed misleading "LLM session created successfully" log message that appeared before actual connection attempts
+
+### Internal
+- `Embedding` and `EmbeddingProvider` classes simplified with explicit parameters instead of config dictionaries
+- `is_embedding_stale()` signature updated to match new metadata structure
+- All worker functions updated to use new `model` parameter naming
+- Test fixtures updated to reflect new metadata format
+- CONTRIBUTING.md updated with correct `uv sync --extra watsonx` command
 
 ## [0.3.1] - 2025-11-06
 
