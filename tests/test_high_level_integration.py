@@ -142,7 +142,7 @@ class TestHighLevelIntegrationSQL:
         expected_json_files = initial_files.copy()
 
         success = generate_chunks(
-            str(content_dir), "**/source.json", force=False, skip_context=True
+            str(content_dir), "**", force=False, skip_context=True
         )
         assert success, "Initial chunking should succeed"
 
@@ -195,7 +195,7 @@ class TestHighLevelIntegrationSQL:
         success = generate_embeddings(
             str(content_dir),
             "ibm-granite/granite-embedding-30m-english",
-            "**/chunks.json",
+            "**",
             force=False,
         )
         assert success, "Initial embedding generation should succeed"
@@ -246,7 +246,7 @@ class TestHighLevelIntegrationSQL:
 
         success = await load_documents(
             content_dir=str(content_dir),
-            model_name="ibm-granite/granite-embedding-30m-english",
+            model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),
@@ -298,7 +298,7 @@ class TestHighLevelIntegrationSQL:
 
         # Test chunking idempotency
         success = generate_chunks(
-            str(content_dir), "**/source.json", force=False, skip_context=True
+            str(content_dir), "**", force=False, skip_context=True
         )
         assert success, "Chunking re-run should succeed"
 
@@ -312,7 +312,7 @@ class TestHighLevelIntegrationSQL:
         success = generate_embeddings(
             str(content_dir),
             "ibm-granite/granite-embedding-30m-english",
-            "**/chunks.json",
+            "**",
             force=False,
         )
         assert success, "Embedding re-run should succeed"
@@ -326,7 +326,7 @@ class TestHighLevelIntegrationSQL:
         # Test database load idempotency
         success = await load_documents(
             content_dir=str(content_dir),
-            model_name="ibm-granite/granite-embedding-30m-english",
+            model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),
@@ -347,9 +347,7 @@ class TestHighLevelIntegrationSQL:
         # === PHASE 3: Force Re-processing Test ===
 
         # Test force re-processing to ensure the pipeline can handle force flags
-        success = generate_chunks(
-            str(content_dir), "**/source.json", force=True, skip_context=True
-        )
+        success = generate_chunks(str(content_dir), "**", force=True, skip_context=True)
         assert success, "Force chunking should succeed"
 
         success = generate_embeddings(
@@ -362,7 +360,7 @@ class TestHighLevelIntegrationSQL:
 
         success = await load_documents(
             content_dir=str(content_dir),
-            model_name="ibm-granite/granite-embedding-30m-english",
+            model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),

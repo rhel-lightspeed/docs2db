@@ -64,7 +64,12 @@ def chunk(
     content_dir: Annotated[
         str | None, typer.Option(help="Path to content directory")
     ] = None,
-    pattern: Annotated[str | None, typer.Option(help="File pattern to process")] = None,
+    pattern: Annotated[
+        str,
+        typer.Option(
+            help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"
+        ),
+    ] = "**",
     force: Annotated[
         bool, typer.Option(help="Force reprocessing even if up-to-date")
     ] = False,
@@ -132,8 +137,11 @@ def embed(
         typer.Option(help="Embedding model to use"),
     ] = None,
     pattern: Annotated[
-        str | None, typer.Option(help="File pattern for chunks files")
-    ] = None,
+        str,
+        typer.Option(
+            help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"
+        ),
+    ] = "**",
     force: Annotated[
         bool, typer.Option(help="Force regeneration of existing embeddings")
     ] = False,
@@ -145,7 +153,7 @@ def embed(
     try:
         if not generate_embeddings(
             content_dir=content_dir,
-            model_name=model,
+            model=model,
             pattern=pattern,
             force=force,
             dry_run=dry_run,
@@ -170,7 +178,7 @@ def load(
     pattern: Annotated[
         str,
         typer.Option(
-            help="Directory pattern for documents (e.g., 'external/**' or 'additional_documents/*')"
+            help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"
         ),
     ] = "**",
     force: Annotated[
@@ -217,7 +225,7 @@ def load(
         if not asyncio.run(
             load_documents(
                 content_dir=content_dir,
-                model_name=model,
+                model=model,
                 pattern=pattern,
                 host=host,
                 port=port,
@@ -446,10 +454,10 @@ def cleanup_workers() -> None:
 
 @app.command(name="db-start")
 def db_start() -> None:
-    """Start PostgreSQL database using Docker/Podman.
+    """Start PostgreSQL database using Podman/Docker.
 
     Creates a default postgres-compose.yml if one doesn't exist.
-    Requires Docker or Podman to be installed.
+    Requires Podman or Docker to be installed.
     """
     try:
         if not start_database():
@@ -623,7 +631,7 @@ def pipeline(
         logger.info("[4/7] Generating embeddings...")
         if not generate_embeddings(
             content_dir=content_dir,
-            model_name=model,
+            model=model,
             pattern="**/*.chunks.json",
             force=False,
             dry_run=False,
@@ -635,7 +643,7 @@ def pipeline(
         if not asyncio.run(
             load_documents(
                 content_dir=content_dir,
-                model_name=model,
+                model=model,
                 pattern="**/*.json",
                 host=None,
                 port=None,

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import httpx
 import psutil
@@ -102,23 +102,23 @@ def is_chunks_stale(chunks_file: Path, source_file: Path) -> bool:
 def source_files(
     content_dir: str,
     pattern: str = "**/source.json",
-) -> tuple[int, Iterator[Path]]:
-    """Return source files from subdirectory structure.
+) -> list[Path]:
+    """Return sorted list of source files from subdirectory structure.
 
     Args:
         content_dir: Path to the content directory to search
         pattern: Glob pattern for file matching (default: "**/source.json")
 
     Returns:
-        tuple[int, Iterator[Path]]: Count of matching files and iterator of Path objects
+        list[Path]: Sorted list of Path objects for source files
     """
 
     content = Path(content_dir)
     if not content.exists():
         raise FileNotFoundError(f"Content directory does not exist: {content_dir}")
 
-    count = sum(1 for _ in content.glob(pattern))
-    return count, content.glob(pattern)
+    # Collect all matching files and sort them for deterministic processing order
+    return sorted(content.glob(pattern))
 
 
 def estimate_tokens(text: str) -> int:
@@ -447,7 +447,7 @@ Summary:"""
 
 
 def map_reduce_summarize(
-    provider: LLMProvider, text: str, max_tokens: int, model_name: str
+    provider: LLMProvider, text: str, max_tokens: int, model: str
 ) -> str:
     """Summarize large text using map-reduce approach.
 
@@ -455,14 +455,14 @@ def map_reduce_summarize(
         provider: LLM provider to use for summarization
         text: Text to summarize
         max_tokens: Maximum tokens per chunk (already includes 70% safety margin)
-        model_name: Model name for logging
+        model: Model name for logging
 
     Returns:
         str: Summarized text that fits within context limit
     """
     logger.info(
         f"Document too large for model context window. "
-        f"Starting map-reduce summarization (model: {model_name})"
+        f"Starting map-reduce summarization (model: {model})"
     )
 
     # Reserve tokens for prompt overhead and response
@@ -503,7 +503,7 @@ def map_reduce_summarize(
     # Use the same chunk_size (not max_tokens) for consistency
     if combined_tokens > chunk_size:
         logger.info("Combined summaries still too large, applying recursive reduction")
-        return map_reduce_summarize(provider, combined, max_tokens, model_name)
+        return map_reduce_summarize(provider, combined, max_tokens, model)
 
     return combined
 
@@ -864,7 +864,7 @@ def generate_chunks_batch(
         # Only create LLM session if we found files that need processing
         if llm_session_needed:
             try:
-                logger.info(
+                logger.debug(
                     f"Creating LLM session: provider={provider}, model={context_model}, "
                     f"watsonx_url={watsonx_url}, openai_url={openai_url}"
                 )
@@ -875,7 +875,6 @@ def generate_chunks_batch(
                     watsonx_url=watsonx_url,
                     context_limit_override=context_limit_override,
                 )
-                logger.info("✅ LLM session created successfully")
             except Exception as e:
                 logger.error(
                     f"❌ FATAL: Failed to create LLM session in worker process: {e}",
@@ -897,7 +896,7 @@ def generate_chunks_batch(
                     "worker_logs": log_collector.logs,
                 }
         else:
-            logger.info(
+            logger.debug(
                 "All files in batch already processed, skipping LLM session creation"
             )
 
@@ -959,7 +958,9 @@ def generate_chunks(
 
     Args:
         content_dir: Path to content directory (defaults to settings.content_base_dir).
-        pattern: File pattern to process (defaults to settings.chunking_pattern).
+        pattern: Directory pattern to match (defaults to "**").
+                 Can be an exact path or use wildcards. Automatically appends '/source.json'.
+                 Examples: 'external/**' (all), 'docs/subdir' (exact), '**/api' (pattern)
         force: Force processing even if output already exists.
         dry_run: Show what would be processed without doing it.
         skip_context: Skip LLM contextual chunk generation (defaults to settings.llm_skip_context).
@@ -987,7 +988,7 @@ def generate_chunks(
     if content_dir is None:
         content_dir = settings.content_base_dir
     if pattern is None:
-        pattern = settings.chunking_pattern
+        pattern = "**"
     if skip_context is None:
         skip_context = settings.llm_skip_context
     if context_model is None:
@@ -998,6 +999,12 @@ def generate_chunks(
         watsonx_url = settings.llm_watsonx_url
     if context_limit_override is None:
         context_limit_override = settings.llm_context_limit_override
+
+    # Append /source.json to the pattern
+    # Works for both exact directory paths and glob patterns:
+    # - "dir/subdir" -> "dir/subdir/source.json" (exact file)
+    # - "dir/**" -> "dir/**/source.json" (glob pattern)
+    pattern = f"{pattern}/source.json"
 
     if skip_context:
         provider_info = "disabled"
@@ -1017,17 +1024,17 @@ def generate_chunks(
 
     ensure_model_available(model_id=CHUNKING_CONFIG["tokenizer_model"])
 
-    count, source_iter = source_files(content_dir, pattern)
+    source_list = source_files(content_dir, pattern)
 
-    if count == 0:
+    if len(source_list) == 0:
         logger.warning(f"No source files found matching pattern: {pattern}")
         return True
 
     if dry_run:
         logger.info("DRY RUN - would process:")
-        for file in source_iter:
+        for file in source_list:
             logger.info(f"  {file}")
-        logger.info(f"DRY RUN complete - found {count} source files")
+        logger.info(f"DRY RUN complete - found {len(source_list)} source files")
         return True
 
     chunker = BatchProcessor(
@@ -1047,7 +1054,7 @@ def generate_chunks(
         mem_threshold_mb=2000,
         max_workers=None,  # Auto-calculate based on CPU count
     )
-    chunked, errors = chunker.process_files(source_iter, count)
+    chunked, errors = chunker.process_files(source_list)
     end = time.time()
 
     if errors > 0:

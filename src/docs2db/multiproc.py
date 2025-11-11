@@ -3,9 +3,8 @@
 import logging
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from itertools import islice
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional
 
 import structlog
 from rich.console import Console, Group
@@ -23,15 +22,15 @@ from rich.text import Text
 logger = structlog.get_logger(__name__)
 
 
-def batch_generator(files: Iterator[Path], batch_size: int):
+def batch_generator(files: list[Path], batch_size: int):
     """Generate batches of file paths (str) for multiprocessing workers.
 
-    Takes an iterator of Path objects and yields them in batches of the
+    Takes a list of Path objects and yields them in batches of the
     specified size. Converts Path objects to strings for JSON
     serialization compatibility with multiprocessing workers.
 
     Args:
-        files: Iterator of Path objects to be batched
+        files: List of Path objects to be batched
         batch_size: Number of files to include in each batch
 
     Yields:
@@ -40,10 +39,8 @@ def batch_generator(files: Iterator[Path], batch_size: int):
                    items if the total number of files is not evenly
                    divisible by batch_size.
     """
-    while True:
-        batch = [str(f) for f in islice(files, batch_size)]
-        if not batch:
-            break
+    for i in range(0, len(files), batch_size):
+        batch = [str(f) for f in files[i : i + batch_size]]
         yield batch
 
 
@@ -193,18 +190,17 @@ class BatchProcessor:
 
     def process_files(
         self,
-        to_process: Iterator[Path],
-        count: int,
+        to_process: list[Path],
     ) -> tuple[int, int]:
         """Process files using multiprocessing workers.
 
         Args:
-            to_process: Iterator of Path objects to process
-            count: Total number of files to process
+            to_process: List of Path objects to process
 
         Returns:
             tuple[int, int]: (num_processed, num_failed)
         """
+        count = len(to_process)
         self.max_workers = worker_count(count, max_workers=self.max_workers)
         batches = batch_generator(to_process, self.batch_size)
 

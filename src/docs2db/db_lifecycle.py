@@ -1,4 +1,4 @@
-"""Database lifecycle management for Docker/Podman containers."""
+"""Database lifecycle management for Podman/Docker containers."""
 
 import shutil
 import subprocess
@@ -112,10 +112,10 @@ def get_project_name_from_compose(compose_file: Path) -> str:
 
 
 def start_database(profile: str = "prod") -> bool:
-    """Start PostgreSQL database using Docker/Podman compose.
+    """Start PostgreSQL database using Podman/Docker compose.
 
     Args:
-        profile: Docker compose profile to use (default: "prod")
+        profile: Container compose profile to use (default: "prod")
 
     Returns:
         True if successful, False otherwise
@@ -127,9 +127,9 @@ def start_database(profile: str = "prod") -> bool:
 
     if not runtime:
         raise ConfigurationError(
-            "Neither Docker nor Podman found. Please install one:\n"
-            "  - Docker: https://docs.docker.com/get-docker/\n"
-            "  - Podman: https://podman.io/getting-started/installation"
+            "Neither Podman nor Docker found. Please install one:\n"
+            "  - Podman: https://podman.io/getting-started/installation\n"
+            "  - Docker: https://docs.docker.com/get-docker/"
         )
 
     compose_file = get_compose_file()
@@ -170,12 +170,12 @@ def start_database(profile: str = "prod") -> bool:
 
 
 def stop_database(profile: str = "prod") -> bool:
-    """Stop PostgreSQL database using Docker/Podman compose.
+    """Stop PostgreSQL database using Podman/Docker compose.
 
     Data is preserved in volumes.
 
     Args:
-        profile: Docker compose profile to use (default: "prod")
+        profile: Container compose profile to use (default: "prod")
 
     Returns:
         True if successful, False otherwise
@@ -187,7 +187,7 @@ def stop_database(profile: str = "prod") -> bool:
 
     if not runtime:
         raise ConfigurationError(
-            "Neither Docker nor Podman found. Cannot stop database."
+            "Neither Podman nor Docker found. Cannot stop database."
         )
 
     compose_file = get_compose_file()
@@ -243,7 +243,7 @@ def destroy_database(profile: str = "prod") -> bool:
 
     if not runtime:
         raise ConfigurationError(
-            "Neither Docker nor Podman found. Cannot destroy database."
+            "Neither Podman nor Docker found. Cannot destroy database."
         )
 
     compose_file = get_compose_file()
@@ -300,7 +300,7 @@ def get_database_logs(follow: bool = False) -> bool:
     runtime = detect_container_runtime()
 
     if not runtime:
-        raise ConfigurationError("Neither Docker nor Podman found. Cannot view logs.")
+        raise ConfigurationError("Neither Podman nor Docker found. Cannot view logs.")
 
     compose_file = get_compose_file()
 

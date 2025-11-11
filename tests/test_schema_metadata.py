@@ -55,7 +55,7 @@ class TestSchemaMetadata:
         # === FIRST LOAD: Create metadata ===
         success = await load_documents(
             content_dir=str(fixtures_dir),
-            model_name="ibm-granite/granite-embedding-30m-english",
+            model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),
@@ -93,7 +93,7 @@ class TestSchemaMetadata:
         # === SECOND LOAD: No metadata changes ===
         success = await load_documents(
             content_dir=str(fixtures_dir),
-            model_name="ibm-granite/granite-embedding-30m-english",
+            model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),
@@ -125,7 +125,7 @@ class TestSchemaMetadata:
         # === THIRD LOAD: Update metadata ===
         success = await load_documents(
             content_dir=str(fixtures_dir),
-            model_name="ibm-granite/granite-embedding-30m-english",
+            model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
             host=config["host"],
             port=int(config["port"]),

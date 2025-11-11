@@ -16,10 +16,8 @@ logger = structlog.get_logger(__name__)
 def is_embedding_stale(
     embedding_file: Path,
     chunks_file: Path,
-    model_name: str,
-    model_id: str,
+    model: str,
     dimensions: int,
-    provider: str,
 ) -> bool:
     """Check if embedding file is stale compared to chunks file and model config.
 
@@ -31,10 +29,8 @@ def is_embedding_stale(
     Args:
         embedding_file: Path to the embedding file to check
         chunks_file: Path to the chunks file to compare against
-        model_name: Model name for identification
-        model_id: Model ID (e.g., "ibm-granite/granite-embedding-30m-english")
+        model: Model identifier (e.g., "ibm-granite/granite-embedding-30m-english")
         dimensions: Embedding dimensions (e.g., 384)
-        provider: Provider type (e.g., "granite")
 
     Returns:
         bool: True if embedding file needs regeneration, False if current
@@ -42,23 +38,19 @@ def is_embedding_stale(
     if not embedding_file.exists():
         return True
 
-    expected_model_info = {
-        "model_name": model_name,
-        "model_id": model_id,
-        "dimensions": dimensions,
-        "provider": provider,
-    }
-
     try:
         with open(embedding_file) as f:
             data = json.load(f)
             metadata = data.get("metadata", {})
 
+        # Check if chunks have changed
         if hash_file(chunks_file) != metadata.get("chunks_hash"):
             return True
 
-        stored_model_info = metadata.get("model", {})
-        if stored_model_info != expected_model_info:
+        # Check if model or dimensions have changed
+        if metadata.get("model") != model:
+            return True
+        if metadata.get("dimensions") != dimensions:
             return True
 
         return False
@@ -94,15 +86,28 @@ def move_to_device(model_or_tensor, device: str):
 class Embedding:
     """Embedding model that handles all embedding generation logic."""
 
-    def __init__(self, model_name: str, config: Dict[str, Any]):
-        """Initialize embedding with configuration."""
-        self.model_name = model_name
-        self.config = config
-        self.model_id = config["model_id"]
-        self.dimensions = config["dimensions"]
-        self.batch_size = config["batch_size"]
-        self.keyword = config["keyword"]
-        self.provider_type = config["provider"]
+    def __init__(
+        self,
+        model: str,
+        keyword: str,
+        dimensions: int,
+        batch_size: int,
+        provider_cls: type,
+    ):
+        """Initialize embedding with configuration.
+
+        Args:
+            model: Full model identifier (e.g., 'ibm-granite/granite-embedding-30m-english')
+            keyword: Short keyword for filename generation (e.g., 'gran')
+            dimensions: Embedding vector dimensions
+            batch_size: Batch size for processing
+            provider_cls: Provider class to instantiate
+        """
+        self.model = model
+        self.keyword = keyword
+        self.dimensions = dimensions
+        self.batch_size = batch_size
+        self.provider_cls = provider_cls
         self.device = get_optimal_device()
 
         if self.device == "cpu":
@@ -112,18 +117,24 @@ class Embedding:
         self._provider = None
 
     @classmethod
-    def from_name(cls, model_name: str) -> "Embedding":
-        """Factory method to create an Embedding from model name."""
-        if model_name not in EMBEDDING_CONFIGS:
+    def from_name(cls, model: str) -> "Embedding":
+        """Factory method to create an Embedding from model identifier."""
+        if model not in EMBEDDING_CONFIGS:
             available = ", ".join(EMBEDDING_CONFIGS.keys())
-            raise ValueError(f"Unknown model '{model_name}'. Available: {available}")
+            raise ValueError(f"Unknown model '{model}'. Available: {available}")
 
-        config = EMBEDDING_CONFIGS[model_name]
-        return cls(model_name, config)
+        config = EMBEDDING_CONFIGS[model]
+        return cls(
+            model=model,
+            keyword=config["keyword"],
+            dimensions=config["dimensions"],
+            batch_size=config["batch_size"],
+            provider_cls=config["cls"],
+        )
 
     def ensure_available(self) -> None:
         """Ensure the embedding model is available locally."""
-        ensure_model_available(self.model_id)
+        ensure_model_available(self.model)
 
     def _get_provider(self):
         """Get or create the embedding provider (lazy loading)."""
@@ -139,8 +150,8 @@ class Embedding:
                 category=FutureWarning,
             )
 
-            self._provider = self.config["cls"](
-                self.model_name, self.config, self.device
+            self._provider = self.provider_cls(
+                self.model, self.dimensions, self.batch_size, self.device
             )
 
         return self._provider
@@ -150,10 +161,8 @@ class Embedding:
         return is_embedding_stale(
             embeddings_file,
             chunks_file,
-            self.model_name,
-            self.model_id,
+            self.model,
             self.dimensions,
-            self.provider_type,
         )
 
     def _load_chunks(self, chunks_file: Path) -> Tuple[List[str], Dict[str, Any]]:
@@ -189,17 +198,10 @@ class Embedding:
                     "source_file": source_metadata.get("source_file", ""),
                     "source_hash": source_metadata.get("source_hash", ""),
                     "chunks_hash": chunks_hash,
-                    "model": {
-                        "model_name": self.model_name,
-                        "model_id": self.model_id,
-                        "dimensions": self.dimensions,
-                        "provider": self.provider_type,
-                    },
-                    "embedding": {
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                        "embedding_count": len(embeddings),
-                        "dimensions": self.dimensions,
-                    },
+                    "model": self.model,
+                    "dimensions": self.dimensions,
+                    "embedded_at": datetime.now(timezone.utc).isoformat(),
+                    "count": len(embeddings),
                     "chunks": {
                         "chunk_count": len(chunks),
                         "processing": source_metadata.get("processing", {}),
@@ -222,7 +224,7 @@ class Embedding:
     ) -> Optional[Path]:
         """Generate embeddings for a chunks file - handles everything!"""
         chunks_file = Path(chunks_file)
-        embeddings_file = create_embedding_filename(chunks_file, self.model_name)
+        embeddings_file = create_embedding_filename(chunks_file, self.model)
 
         # Check if we need to process this file
         if not force and not self._is_stale(embeddings_file, chunks_file):
@@ -246,12 +248,18 @@ class Embedding:
 class EmbeddingProvider:
     """Base class for embedding providers."""
 
-    def __init__(self, model_name: str, config: Dict[str, Any], device: str):
-        self.model_name = model_name
-        self.config = config
-        self.model_id = config["model_id"]
-        self.dimensions = config["dimensions"]
-        self.batch_size = config["batch_size"]
+    def __init__(self, model: str, dimensions: int, batch_size: int, device: str):
+        """Initialize embedding provider.
+
+        Args:
+            model: Full model identifier
+            dimensions: Embedding vector dimensions
+            batch_size: Batch size for processing
+            device: Device to use (cpu/cuda/mps)
+        """
+        self.model = model
+        self.dimensions = dimensions
+        self.batch_size = batch_size
         self.device = device
 
     def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
@@ -262,8 +270,8 @@ class EmbeddingProvider:
 class GraniteEmbeddingProvider(EmbeddingProvider):
     """Granite embedding provider using CLS token pooling."""
 
-    def __init__(self, model_name: str, config: Dict[str, Any], device: str):
-        super().__init__(model_name, config, device)
+    def __init__(self, model: str, dimensions: int, batch_size: int, device: str):
+        super().__init__(model, dimensions, batch_size, device)
         self._model = None
         self._tokenizer = None
 
@@ -283,14 +291,14 @@ class GraniteEmbeddingProvider(EmbeddingProvider):
 
                 try:
                     self._model = AutoModel.from_pretrained(
-                        self.model_id, local_files_only=True
+                        self.model, local_files_only=True
                     )
                     self._tokenizer = AutoTokenizer.from_pretrained(
-                        self.model_id, local_files_only=True
+                        self.model, local_files_only=True
                     )
                 except Exception as e:
                     raise ValueError(
-                        f"Granite model '{self.model_id}' not found locally. "
+                        f"Granite model '{self.model}' not found locally. "
                         f"Run: uv run docs2db download-model granite-30m-english"
                         f" Original error: {e}"
                     ) from e
@@ -407,39 +415,39 @@ EMBEDDING_CONFIGS = {
     "ibm-granite/granite-embedding-30m-english": {
         "keyword": "gran",
         "dimensions": 384,
-        "provider": "granite",
         "batch_size": 64,
         "cls": GraniteEmbeddingProvider,
     },
     "ibm/slate-125m-english-rtrvr-v2": {
         "keyword": "slate",
         "dimensions": 768,
-        "provider": "watson",
         "batch_size": 2000,
         "cls": WatsonEmbeddingProvider,
     },
     "avsolatorio/NoInstruct-small-Embedding-v0": {
         "keyword": "noins",
         "dimensions": 384,
-        "provider": "noinstruct",
         "batch_size": 32,
         "cls": NoInstructEmbeddingProvider,
     },
     "intfloat/e5-small-v2": {
         "keyword": "e5sm",
         "dimensions": 384,
-        "provider": "e5",
         "batch_size": 32,
         "cls": E5EmbeddingProvider,
     },
 }
 
 
-def create_embedding_filename(chunks_file: Path, model_name: str) -> Path:
+def create_embedding_filename(chunks_file: Path, model: str) -> Path:
     """Create an embedding filename using model keyword.
 
     chunks_file is .../doc_dir/chunks.json
     Returns .../doc_dir/{keyword}.json (e.g., gran.json, slate.json)
+
+    Args:
+        chunks_file: Path to chunks file
+        model: Full model identifier
     """
-    keyword = EMBEDDING_CONFIGS[model_name]["keyword"]
+    keyword = EMBEDDING_CONFIGS[model]["keyword"]
     return chunks_file.parent / f"{keyword}.json"

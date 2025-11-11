@@ -8,7 +8,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import psutil
 import psycopg
@@ -314,17 +314,17 @@ class DatabaseManager:
 
         return row[0]
 
-    async def get_model_id(self, conn, name: str) -> Optional[int]:
+    async def get_model(self, conn, name: str) -> Optional[int]:
         """Get model ID by name."""
         result = await conn.execute("SELECT id FROM models WHERE name = %s", [name])
         row = await result.fetchone()
         return row[0] if row else None
 
-    async def get_model_info(self, conn, model_id: int) -> Optional[dict]:
+    async def get_model_info(self, conn, model: int) -> Optional[dict]:
         """Get model information by ID."""
         result = await conn.execute(
             "SELECT id, name, dimensions, provider, description, created_at FROM models WHERE id = %s",
-            [model_id],
+            [model],
         )
         row = await result.fetchone()
         if row:
@@ -447,10 +447,10 @@ class DatabaseManager:
         CREATE TABLE IF NOT EXISTS embeddings (
             id SERIAL PRIMARY KEY,
             chunk_id INTEGER REFERENCES chunks(id) ON DELETE CASCADE,
-            model_id INTEGER REFERENCES models(id) ON DELETE CASCADE,
+            model INTEGER REFERENCES models(id) ON DELETE CASCADE,
             embedding VECTOR, -- Dynamic dimension based on model
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-            UNIQUE(chunk_id, model_id)
+            UNIQUE(chunk_id, model)
         );
 
         -- Schema metadata: singleton table tracking current database state
@@ -485,7 +485,7 @@ class DatabaseManager:
         CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path);
         CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
         CREATE INDEX IF NOT EXISTS idx_embeddings_chunk_id ON embeddings(chunk_id);
-        CREATE INDEX IF NOT EXISTS idx_embeddings_model_id ON embeddings(model_id);
+        CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
         CREATE INDEX IF NOT EXISTS idx_models_name ON models(name);
         CREATE INDEX IF NOT EXISTS idx_chunks_text_search ON chunks USING GIN(text_search_vector);
 
@@ -543,23 +543,22 @@ class DatabaseManager:
         errors = 0
 
         # Get model info and ensure model exists in database
-        # Extract model_name from first file (all files in batch use same model)
+        # Extract model from first file (all files in batch use same model)
         if not files_data:
             return 0, 0
 
-        model_name = files_data[0][2]  # model is 3rd element in tuple
-        model_config = EMBEDDING_CONFIGS.get(model_name, {})
+        model = files_data[0][2]  # model is 3rd element in tuple
+        model_config = EMBEDDING_CONFIGS.get(model, {})
         model_dimensions = model_config.get("dimensions", 0)
-        model_provider = model_config.get("provider")
 
-        # Insert model if it doesn't exist and get model_id
+        # Insert model if it doesn't exist and get model ID
         async with await self.get_direct_connection() as conn:
             model_id = await self.insert_model(
                 conn,
-                name=model_name,
+                name=model,
                 dimensions=model_dimensions,
-                provider=model_provider,
-                description=f"Embedding model: {model_name}",
+                provider=None,  # Provider is no longer stored in config
+                description=f"Embedding model: {model}",
             )
             await conn.commit()
 
@@ -606,7 +605,7 @@ class DatabaseManager:
                     doc_data,
                     chunks,
                     embedding_vectors,
-                    model_name,
+                    model_id,
                     embedding_file,
                 ))
 
@@ -630,7 +629,7 @@ class DatabaseManager:
                     doc_data,
                     chunks,
                     embedding_vectors,
-                    model_name,
+                    model_id_from_data,
                     embedding_file,
                 ) in documents_data:
                     try:
@@ -643,9 +642,9 @@ class DatabaseManager:
                                 FROM documents d
                                 JOIN chunks c ON c.document_id = d.id
                                 JOIN embeddings e ON e.chunk_id = c.id
-                                WHERE d.path = %s AND e.model_id = %s
+                                WHERE d.path = %s AND e.model = %s
                                 """,
-                                (str(source_file), model_id),
+                                (str(source_file), model_id_from_data),
                             )
                             existing_row = await existing_result.fetchone()
 
@@ -708,7 +707,7 @@ class DatabaseManager:
                                 source_file,
                                 chunk_data,
                                 embedding_vector,
-                                model_name,
+                                model_id,
                             ))
 
                         processed += 1
@@ -726,7 +725,7 @@ class DatabaseManager:
                     source_file,
                     chunk_data,
                     embedding_vector,
-                    model_name,
+                    model,
                 ) in chunks_data:
                     try:
                         chunk_result = await conn.execute(
@@ -771,9 +770,9 @@ class DatabaseManager:
                     try:
                         await conn.execute(
                             """
-                            INSERT INTO embeddings (chunk_id, model_id, embedding)
+                            INSERT INTO embeddings (chunk_id, model, embedding)
                             VALUES (%s, %s, %s)
-                            ON CONFLICT (chunk_id, model_id) DO UPDATE SET
+                            ON CONFLICT (chunk_id, model) DO UPDATE SET
                                 embedding = EXCLUDED.embedding,
                                 created_at = NOW()
                             """,
@@ -828,15 +827,15 @@ class DatabaseManager:
                 """
                 SELECT m.name, COUNT(e.id) as count, m.dimensions
                 FROM models m
-                LEFT JOIN embeddings e ON e.model_id = m.id
+                LEFT JOIN embeddings e ON e.model = m.id
                 GROUP BY m.id, m.name, m.dimensions
                 ORDER BY m.name
                 """
             )
             embedding_models = {}
             async for row in embedding_stats:
-                model_name, count, dimensions = row
-                embedding_models[model_name] = {
+                model, count, dimensions = row
+                embedding_models[model] = {
                     "count": count,
                     "dimensions": dimensions if dimensions else 0,
                 }
@@ -1031,10 +1030,10 @@ async def check_database_status(
 
     # Log embedding models breakdown
     if stats["embedding_models"]:
-        for model_name, model_info in stats["embedding_models"].items():
+        for model, model_info in stats["embedding_models"].items():
             logger.info(
                 "\nEmbedding model details:\n"
-                f"  model     : {model_name}\n"
+                f"  model     : {model}\n"
                 f"  dimensions: {model_info['dimensions']}\n"
                 f"  embeddings: {model_info['count']}"
             )
@@ -1135,31 +1134,33 @@ async def check_database_status(
 
 
 async def load_files(
-    content_dir: Path, model_name: str, pattern: str, force: bool
-) -> tuple[int, Iterator[tuple[Path, Path]]]:
+    content_dir: Path, model: str, pattern: str, force: bool
+) -> list[tuple[Path, Path]]:
     """Find source files and their corresponding embedding files for loading.
 
     looks for .../doc_dir/source.json files and their
     corresponding .../doc_dir/chunks.json and .../doc_dir/{keyword}.json files.
+
+    Returns:
+        list[tuple[Path, Path]]: Sorted list of (source_file, embedding_file) pairs
     """
 
-    def valid_pairs_iter():
-        """Iterator over valid (source_file, embedding_file) pairs."""
-        for source_file in content_dir.glob(pattern):
-            # source_file is .../doc_dir/source.json
-            chunks_file = source_file.parent / "chunks.json"
-            if not chunks_file.exists():
-                continue
+    valid_pairs = []
 
-            embedding_file = create_embedding_filename(chunks_file, model_name)
-            if not embedding_file.exists():
-                continue
+    # Collect all source files in sorted order
+    for source_file in sorted(content_dir.glob(pattern)):
+        # source_file is .../doc_dir/source.json
+        chunks_file = source_file.parent / "chunks.json"
+        if not chunks_file.exists():
+            continue
 
-            yield source_file, embedding_file
+        embedding_file = create_embedding_filename(chunks_file, model)
+        if not embedding_file.exists():
+            continue
 
-    # Count valid pairs without consuming the iterator
-    count = sum(1 for _ in valid_pairs_iter())
-    return count, valid_pairs_iter()
+        valid_pairs.append((source_file, embedding_file))
+
+    return valid_pairs
 
 
 async def _ensure_database_exists(
@@ -1196,7 +1197,7 @@ async def _ensure_database_exists(
 
 def load_batch_worker(
     file_batch: List[str],
-    model_name: str,
+    model: str,
     content_dir: str,
     db_host: str,
     db_port: int,
@@ -1209,7 +1210,7 @@ def load_batch_worker(
 
     Args:
         file_batch: List of source file paths to process
-        model_name: Embedding model name
+        model: Embedding model name
         db_host: Database host
         db_port: Database port
         db_name: Database name
@@ -1233,7 +1234,7 @@ def load_batch_worker(
         processed, errors = asyncio.run(
             _load_batch_async(
                 file_paths,
-                model_name,
+                model,
                 content_dir_path,
                 db_host,
                 db_port,
@@ -1273,7 +1274,7 @@ def load_batch_worker(
 
 async def _load_batch_async(
     file_paths: List[Path],
-    model_name: str,
+    model: str,
     content_dir: Path,
     db_host: str,
     db_port: int,
@@ -1303,7 +1304,7 @@ async def _load_batch_async(
             if not chunks_file.exists():
                 continue
 
-            embedding_file = create_embedding_filename(chunks_file, model_name)
+            embedding_file = create_embedding_filename(chunks_file, model)
             if not embedding_file.exists():
                 continue
 
@@ -1314,7 +1315,7 @@ async def _load_batch_async(
             files_data.append((
                 source_file,
                 chunks_file,
-                model_name,
+                model,
                 embedding_data,
                 embedding_file,
             ))
@@ -1335,7 +1336,7 @@ async def _load_batch_async(
 
 async def load_documents(
     content_dir: str | None = None,
-    model_name: str | None = None,
+    model: str | None = None,
     pattern: str | None = None,
     host: Optional[str] = None,
     port: Optional[int] = None,
@@ -1353,7 +1354,7 @@ async def load_documents(
 
     Args:
         content_dir: Directory containing content files (defaults to settings.content_base_dir)
-        model_name: Embedding model name (defaults to settings.embedding_model)
+        model: Embedding model name (defaults to settings.embedding_model)
         pattern: Directory pattern to match (e.g., "external/**" or "additional_documents/*")
                  Defaults to "**" which loads all documents.
         host: Database host (auto-detected from compose file if None)
@@ -1375,22 +1376,18 @@ async def load_documents(
 
     if content_dir is None:
         content_dir = settings.content_base_dir
-    if model_name is None:
-        model_name = settings.embedding_model
+    if model is None:
+        model = settings.embedding_model
     if pattern is None:
         pattern = "**"
-
-    # Validate that pattern ends with a glob wildcard (** or *)
-    if not (pattern.endswith("**") or pattern.endswith("*")):
-        raise ContentError(
-            f"Pattern must end with '**' or '*' to match directories. "
-            f"Got: '{pattern}'. Examples: 'external/**', 'additional_documents/*', '**'"
-        )
 
     logger.info(f"Loading from content_dir: {content_dir}")
     logger.info(f"Using directory pattern: {pattern}")
 
-    # Always append /source.json to look for source files in matching directories
+    # Append /source.json to the pattern
+    # Works for both exact directory paths and glob patterns:
+    # - "dir/subdir" -> "dir/subdir/source.json" (exact file)
+    # - "dir/**" -> "dir/**/source.json" (glob pattern)
     pattern = f"{pattern}/source.json"
 
     start = time.time()
@@ -1402,16 +1399,14 @@ async def load_documents(
     user = user if user is not None else config["user"]
     password = password if password is not None else config["password"]
 
-    if model_name not in EMBEDDING_CONFIGS:
+    if model not in EMBEDDING_CONFIGS:
         available = ", ".join(EMBEDDING_CONFIGS.keys())
-        logger.error(f"Unknown model '{model_name}'. Available: {available}")
-        raise ConfigurationError(
-            f"Unknown model '{model_name}'. Available: {available}"
-        )
+        logger.error(f"Unknown model '{model}'. Available: {available}")
+        raise ConfigurationError(f"Unknown model '{model}'. Available: {available}")
 
     logger.info(
         f"\nDatabase load:\n"
-        f"  model   : {model_name}\n"
+        f"  model   : {model}\n"
         f"  content : {content_dir}\n"
         f"  pattern : {pattern}\n"
         f"  database: {user}@{host}:{port}/{db}\n"
@@ -1471,13 +1466,13 @@ async def load_documents(
     if not content_path.exists():
         raise ContentError(f"Content directory does not exist: {content_dir}")
 
-    count, file_pairs_iter = await load_files(content_path, model_name, pattern, force)
+    file_pairs_list = await load_files(content_path, model, pattern, force)
 
-    if not count:
+    if len(file_pairs_list) == 0:
         logger.info("No files to load")
         return True
 
-    logger.info(f"Found {count} embedding files for model: {model_name}")
+    logger.info(f"Found {len(file_pairs_list)} embedding files for model: {model}")
 
     # Count records BEFORE the operation starts
     async with await db_manager.get_direct_connection() as conn:
@@ -1495,7 +1490,7 @@ async def load_documents(
 
         # Check if this model already exists in models table
         result = await conn.execute(
-            "SELECT COUNT(*) FROM models WHERE name = %s", [model_name]
+            "SELECT COUNT(*) FROM models WHERE name = %s", [model]
         )
         row = await result.fetchone()
         model_existed_before = (row[0] if row else 0) > 0
@@ -1503,7 +1498,7 @@ async def load_documents(
     processor = BatchProcessor(
         worker_function=load_batch_worker,
         worker_args=(
-            model_name,
+            model,
             content_dir,
             host,
             port,
@@ -1517,9 +1512,9 @@ async def load_documents(
         mem_threshold_mb=2000,
     )
 
-    # Extract just the source files from the iterator for the batch processor
-    source_files_iter = (source_file for source_file, _ in file_pairs_iter)
-    loaded, errors = processor.process_files(source_files_iter, count)
+    # Extract just the source files from the list for the batch processor
+    source_files_list = [source_file for source_file, _ in file_pairs_list]
+    loaded, errors = processor.process_files(source_files_list)
     end = time.time()
 
     # Record this load operation in schema_changes
@@ -1538,7 +1533,7 @@ async def load_documents(
 
             # Build note for this operation
             operation_note = (
-                note if note else f"Loaded {loaded} files with model {model_name}"
+                note if note else f"Loaded {loaded} files with model {model}"
             )
             if errors > 0:
                 operation_note += f" ({errors} errors)"
@@ -1562,7 +1557,7 @@ async def load_documents(
             # Check if this model is new (didn't exist before, exists now)
             embedding_models_added = []
             if not model_existed_before and embeddings_added_count > 0:
-                embedding_models_added = [model_name]
+                embedding_models_added = [model]
 
             # Insert change record with all statistics
             await db_manager.insert_schema_change(

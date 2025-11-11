@@ -18,7 +18,9 @@ Build a RAG database from documents. Docs2DB processes documents into chunks and
 uv tool install docs2db
 ```
 
-**Requirements:** Docker or Podman (for database management)
+**Requirements:**
+- Podman or Docker (for database management)
+- Ollama (optional, needed for contextual chunking which is on by default; turn off with `--skip-context`)
 
 ## Quickstart
 
@@ -30,6 +32,24 @@ docs2db pipeline /path/to/your/documents
 This starts a database, processes everything, and creates `ragdb_dump.sql`.
 
 **Next steps:** See [docs2db-api](https://github.com/rhel-lightspeed/docs2db-api) to use your database for RAG search. Follow one of its demos to use it with Llama Stack or integrate it into your agent.
+
+## Overview
+
+**Processing time:** For large document sets (10,000+ documents), processing can take hours to days. Don't worry, the process is **resumable**. All intermediate files are saved locally in `docs2db_content/`, so if processing is interrupted, restarting will automatically skip files that are already complete.
+
+**Database:** Docs2DB uses PostgreSQL with pgvector to build your RAG database. When you run the omnibus `pipeline` command it automatically creates a temporary database server using Podman/Docker, processes your documents, creates a `.sql` dump file, and then destroys the temporary database. You may never notice the database server running.
+
+**Processing stages:** The `pipeline` command runs four stages:
+1. **Ingest** - Convert documents to Docling JSON format
+2. **Chunk** - Break documents into searchable sections (with optionally skippable LLM-generated context)
+3. **Embed** - Generate vector embeddings for each chunk
+4. **Load** - Insert everything into PostgreSQL
+
+Each stage can also be run individually (`ingest`, `chunk`, `embed`, `load`). All stages are **idempotent** - they check file timestamps and hashes to skip work that's already been done.
+
+**Performance tip:** The slowest stage is contextual chunking, where an LLM (via Ollama or WatsonX) generates context for each document section. This improves search quality but can be skipped for faster build-time processing using `--skip-context` with either `pipeline` or `chunk`. Skipping context also means you don't need Ollama installed. Note that skipping context may reduce search accuracy. Search time is unaffected whether contextual chunking is used or not.
+
+**Storage:** Intermediate files in `docs2db_content/` can be substantial (roughly 2-3x your source document size). Keep this directory, it is valuable for incremental updates and should be committed to version control.
 
 ## Database Configuration
 
@@ -66,7 +86,7 @@ docs2db load --host localhost --db mydb
 ### Database Lifecycle
 
 ```bash
-docs2db db-start      # Start PostgreSQL (Docker/Podman)
+docs2db db-start      # Start PostgreSQL (Podman/Docker)
 docs2db db-stop       # Stop PostgreSQL
 docs2db db-logs       # View logs (-f to follow)
 docs2db db-destroy    # Delete all data (prompts for confirmation)
@@ -80,7 +100,7 @@ docs2db pipeline <path>              # Complete workflow
 docs2db pipeline <path> \
   --output-file my-rag.sql \         # Custom output
   --skip-context \                   # Skip contextual chunks (faster)
-  --model e5-small-v2                # Different embedding model
+  --model intfloat/e5-small-v2       # Different embedding model
 ```
 
 ### Individual Steps
@@ -114,7 +134,7 @@ docs2db chunk --openai-url https://api.openai.com \           # OpenAI
 docs2db chunk --watsonx-url https://us-south.ml.cloud.ibm.com # WatsonX
 
 # Patterns and directories
-docs2db chunk --pattern "docs/**/*.json"
+docs2db chunk --pattern "docs/**"
 docs2db chunk --content-dir my-content
 ```
 
@@ -127,7 +147,7 @@ Configuration via environment variables or `.env` file also supported. Run `docs
 docs2db embed --model granite-30m-english
 
 # Patterns and directories
-docs2db embed --pattern "docs/**/*.chunks.json"
+docs2db embed --pattern "docs/**"
 docs2db embed --content-dir my-content
 ```
 
@@ -135,10 +155,26 @@ Run `docs2db embed --help` for all options.
 
 ## Content Directory
 
-The content directory (default: `docs2db_content/`) stores:
-- Ingested documents in Docling JSON format
-- `.chunks.json` files with text chunks
-- `.gran.json` files with embeddings
+The content directory (default: `docs2db_content/`) stores intermediate processing files. The directory structure mirrors your source document hierarchy - each source file gets its own subdirectory:
+
+```
+docs2db_content/
+├── path/
+│   └── to/
+│       └── your/
+│           └── document/
+│               ├── source.json      # Docling ingested document
+│               ├── chunks.json      # Text chunks with context
+│               ├── gran.json        # Granite embeddings
+│               └── meta.json        # Processing metadata
+└── README.md
+```
+
+**Files per document:**
+- `source.json` - Ingested document in Docling JSON format
+- `chunks.json` - Text chunks (with optional LLM-generated context)
+- `gran.json` - Vector embeddings (filename varies by model: `slate.json`, `e5sm.json`, etc.)
+- `meta.json` - Processing metadata and timestamps
 
 **Important:** Commit this directory to version control. It contains expensive preprocessing that can be reused across updates. Docs2DB automatically skips files that haven't changed.
 
@@ -154,17 +190,14 @@ The content directory (default: `docs2db_content/`) stores:
 
 ## Troubleshooting
 
-### "Neither Docker nor Podman found"
-Install Docker (https://docs.docker.com/get-docker/) or Podman (https://podman.io/getting-started/installation)
+### "Neither Podman nor Docker found"
+Install Podman (https://podman.io/getting-started/installation) or Docker (https://docs.docker.com/get-docker/)
 
 ### "Database connection refused"
 ```bash
 docs2db db-start      # Start the database
 docs2db db-status     # Check connection
 ```
-
-### "Module not found" errors
-Use `uv tool install docs2db`
 
 ## Using as a Library
 
@@ -173,12 +206,27 @@ uv add docs2db
 ```
 
 ```python
-from docs2db import ingest_file, ingest_from_content
+from pathlib import Path
+from docs2db.ingest import ingest_file, ingest_from_content
 
-# Your code here
+# Ingest a file from disk
+ingest_file(
+    source_file=Path("document.pdf"),
+    content_path=Path("docs2db_content/my_docs/document"),
+    source_metadata={"source": "my_system", "retrieved_at": "2024-01-01"}  # optional
+)
+
+# Ingest content from memory (HTML, markdown, etc.)
+ingest_from_content(
+    content="<html>...</html>",
+    content_path=Path("docs2db_content/my_docs/page"),
+    stream_name="page.html",
+    source_metadata={"url": "https://example.com"},  # optional
+    content_encoding="utf-8"  # optional, defaults to "utf-8"
+)
 ```
 
-See `docs2db --help` for the full Python API.
+Both functions convert documents to Docling JSON format and save to `content_path/source.json`. Use the CLI commands (`chunk`, `embed`, `load`) to process the ingested documents.
 
 ## Development
 
@@ -199,7 +247,22 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Serving Your Database
 
-Use [docs2db-api](https://github.com/rhel-lightspeed/docs2db-api) to serve your RAG database with a REST API.
+Use [docs2db-api](https://github.com/rhel-lightspeed/docs2db-api) to query your RAG database with hybrid search (vector + BM25) and reranking.
+
+**As a Python library:**
+
+```python
+from docs2db_api.rag.engine import UniversalRAGEngine, RAGConfig
+
+config = RAGConfig(similarity_threshold=0.7, max_chunks=5)
+engine = UniversalRAGEngine(config=config)
+await engine.start()  # Auto-detects database and embedding model
+results = await engine.search_documents("How do I configure authentication?")
+```
+
+**As a REST API or Llama Stack integration:**
+
+See the [docs2db-api repository](https://github.com/rhel-lightspeed/docs2db-api) for FastAPI REST server and Llama Stack adapter examples.
 
 ## License
 

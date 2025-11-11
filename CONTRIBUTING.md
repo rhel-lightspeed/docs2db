@@ -114,7 +114,7 @@ Note: The main database and test database are completely separate and run on dif
 
 **Quick pipeline** (runs all stages automatically):
 ```bash
-uv run docs2db pipeline tests/fixtures/
+uv run docs2db pipeline tests/fixtures/input
 ```
 
 This starts the database, ingests, chunks, embeds, loads, creates a dump, and stops the database.
@@ -123,7 +123,7 @@ This starts the database, ingests, chunks, embeds, loads, creates a dump, and st
 ```bash
 # Ingest sample files
 # Creates docs2db_content/ with Docling JSON files
-uv run docs2db ingest tests/fixtures/
+uv run docs2db ingest tests/fixtures/input
 
 # Chunk with context (requires Ollama/OpenAI/WatsonX)
 # Creates <name>.chunks.json files alongside each source file
@@ -417,7 +417,7 @@ Some features require optional dependencies:
 
 For development (local repo):
 ```bash
-uv sync
+uv sync --extra watsonx
 ```
 
 For tool installation:

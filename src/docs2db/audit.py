@@ -44,18 +44,14 @@ def perform_audit(
     if pattern is None:
         pattern = "**"
 
-    # Validate that pattern ends with a glob wildcard (** or *)
-    if not (pattern.endswith("**") or pattern.endswith("*")):
-        raise ContentError(
-            f"Pattern must end with '**' or '*' to match directories. "
-            f"Got: '{pattern}'. Examples: 'external/**', 'additional_documents/*', '**'"
-        )
-
-    # Always append /source.json to look for source files in matching directories
-    source_pattern = f"{pattern}/source.json"
-
     logger.info(f"Auditing content_dir: {content_dir}")
     logger.info(f"Using directory pattern: {pattern}")
+
+    # Append /source.json to the pattern
+    # Works for both exact directory paths and glob patterns:
+    # - "dir/subdir" -> "dir/subdir/source.json" (exact file)
+    # - "dir/**" -> "dir/**/source.json" (glob pattern)
+    source_pattern = f"{pattern}/source.json"
 
     content_path = Path(content_dir)
 
@@ -74,8 +70,9 @@ def perform_audit(
                     terminal_dirs.append(item)
         return terminal_dirs
 
-    # Find all source.json files in matching directories
-    source_count = sum(1 for _ in content_path.glob(source_pattern))
+    # Find all source.json files in matching directories (sorted for deterministic order)
+    source_files = sorted(content_path.glob(source_pattern))
+    source_count = len(source_files)
 
     # Find all terminal directories for orphan check
     terminal_dirs = get_terminal_directories(content_path)
@@ -105,10 +102,12 @@ def perform_audit(
         orphan_dir_task = progress.add_task("Orphan dirs", total=terminal_count)
         zero_chunks_task = progress.add_task("Zero chunks", total=source_count)
 
-        for source_file in content_path.glob(source_pattern):
+        for source_file in source_files:
             # source_file is .../doc_dir/source.json
             doc_dir = source_file.parent
             doc_name = doc_dir.name
+            # Get full relative path from content directory for better reporting
+            doc_rel_path = doc_dir.relative_to(content_path)
 
             # Advance source task for this document
             progress.advance(source_task)
@@ -117,9 +116,9 @@ def perform_audit(
             chunks_file = doc_dir / "chunks.json"
             has_zero_chunks = False
             if not chunks_file.exists():
-                messages.append(f"missing chunks    : {doc_name}/chunks.json")
+                messages.append(f"missing chunks    : {doc_rel_path}/chunks.json")
             elif is_chunks_stale(chunks_file, source_file):
-                messages.append(f"stale chunk       : {doc_name}/chunks.json")
+                messages.append(f"stale chunk       : {doc_rel_path}/chunks.json")
                 progress.advance(stale_chunks_task)
             else:
                 # Check if chunks file has zero chunks
@@ -146,27 +145,25 @@ def perform_audit(
                 if embed_file.exists():
                     found_any_embedding = True
                     # Find the model name from keyword
-                    model_name = None
+                    model = None
                     model_config = None
                     for name, config in EMBEDDING_CONFIGS.items():
                         if config["keyword"] == keyword:
-                            model_name = name
+                            model = name
                             model_config = config
                             break
 
-                    assert model_name is not None
+                    assert model is not None
                     assert model_config is not None
                     if chunks_file.exists():
                         if is_embedding_stale(
                             embed_file,
                             chunks_file,
-                            model_name,
-                            model_config["model_id"],
+                            model,
                             model_config["dimensions"],
-                            model_config["provider"],
                         ):
                             messages.append(
-                                f"stale embedding   : {doc_name}/{keyword}.json"
+                                f"stale embedding   : {doc_rel_path}/{keyword}.json"
                             )
                             has_stale_embedding = True
 
@@ -179,7 +176,7 @@ def perform_audit(
             else:
                 # Only report missing embeddings if the document has chunks
                 if not has_zero_chunks:
-                    messages.append(f"missing embeddings: {doc_name}/")
+                    messages.append(f"missing embeddings: {doc_rel_path}/")
 
             # Check for unknown files in the document directory
             known_files = {"source.json", "chunks.json", "meta.json"}
@@ -191,12 +188,12 @@ def perform_audit(
                     and file.suffix == ".json"
                     and file.name not in known_files
                 ):
-                    messages.append(f"unknown file      : {doc_name}/{file.name}")
+                    messages.append(f"unknown file      : {doc_rel_path}/{file.name}")
 
             # Check for meta.json
             meta_file = doc_dir / "meta.json"
             if not meta_file.exists():
-                messages.append(f"missing metadata  : {doc_name}/meta.json")
+                messages.append(f"missing metadata  : {doc_rel_path}/meta.json")
             else:
                 # Check metadata version
                 try:
@@ -204,14 +201,16 @@ def perform_audit(
                         meta_data = json.load(f)
                     if meta_data.get("metadata_version") != METADATA_SCHEMA_VERSION:
                         messages.append(
-                            f"version mismatch  : {doc_name}/meta.json "
+                            f"version mismatch  : {doc_rel_path}/meta.json "
                             f"(has {meta_data.get('metadata_version')}, expected {METADATA_SCHEMA_VERSION})"
                         )
                         progress.advance(version_mismatch_task)
                     else:
                         progress.advance(metadata_task)
                 except (json.JSONDecodeError, OSError) as e:
-                    messages.append(f"invalid metadata  : {doc_name}/meta.json ({e})")
+                    messages.append(
+                        f"invalid metadata  : {doc_rel_path}/meta.json ({e})"
+                    )
 
         # Check for orphaned directories (terminal directories without source.json)
         for terminal_dir in terminal_dirs:

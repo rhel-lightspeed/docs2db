@@ -587,19 +587,20 @@ def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool
     logger.info("Starting ingestion", source_path=str(source_root), dry_run=dry_run)
     start = time.time()
 
-    file_count = sum(1 for _ in find_ingestible_files(source_root))
-    if file_count == 0:
+    # Collect and sort all source files
+    source_files = sorted(find_ingestible_files(source_root))
+    if len(source_files) == 0:
         logger.warning("No ingestible files found", source_path=str(source_root))
         return True
 
-    logger.info("Found files to process", count=file_count)
+    logger.info("Found files to process", count=len(source_files))
 
     # Ensure content directory README exists
     ensure_content_dir_readme()
 
     if dry_run:
         logger.info("Dry run mode - would process:")
-        for source_file in find_ingestible_files(source_root):
+        for source_file in source_files:
             content_path = generate_content_path(source_file, source_root)
             logger.info(
                 source_file.name, source=str(source_file), target=str(content_path)
@@ -615,8 +616,7 @@ def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool
         mem_threshold_mb=1500,  # Lower threshold for docling processes
     )
 
-    source_iter = find_ingestible_files(source_root)
-    processed, errors = processor.process_files(source_iter, file_count)
+    processed, errors = processor.process_files(source_files)
     end = time.time()
 
     if errors > 0:

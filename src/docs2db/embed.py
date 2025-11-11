@@ -4,7 +4,7 @@ import os
 import signal
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import psutil
 import structlog
@@ -16,26 +16,34 @@ from docs2db.multiproc import BatchProcessor, setup_worker_logging
 logger = structlog.get_logger(__name__)
 
 
-def chunks_files(content_dir: str, pattern: str) -> tuple[int, Iterator[Path]]:
-    """Return chunks files."""
+def chunks_files(content_dir: str, pattern: str) -> list[Path]:
+    """Return sorted list of chunks files.
+
+    Args:
+        content_dir: Path to content directory
+        pattern: Glob pattern for file matching
+
+    Returns:
+        list[Path]: Sorted list of Path objects for chunks files
+    """
     content_path = Path(content_dir)
     if not content_path.exists():
         raise FileNotFoundError(f"Directory does not exist: {content_dir}")
 
-    count = sum(1 for _ in content_path.glob(pattern))
-    return count, content_path.glob(pattern)
+    # Collect all matching files and sort them for deterministic processing order
+    return sorted(content_path.glob(pattern))
 
 
 def generate_embeddings_batch(
     chunks_files: list[str],
-    model_name: str,
+    model: str,
     force: bool = False,
 ) -> dict[str, Any]:
     """Worker function for generating embeddings by the batch.
 
     Args:
         chunks_files: List of chunks file paths (as strings) to process in this batch
-        model_name: Name of the embedding model to use
+        model: Model identifier to use
         force: If True, reprocess files even if embeddings are up-to-date
 
     Returns:
@@ -57,7 +65,7 @@ def generate_embeddings_batch(
 
     log_collector = setup_worker_logging(__name__)
 
-    embedding = Embedding.from_name(model_name)
+    embedding = Embedding.from_name(model)
 
     for file in chunks_files:
         try:
@@ -84,7 +92,7 @@ def generate_embeddings_batch(
 
 def generate_embeddings(
     content_dir: str | None = None,
-    model_name: str | None = None,
+    model: str | None = None,
     pattern: str | None = None,
     force: bool = False,
     dry_run: bool = False,
@@ -93,8 +101,10 @@ def generate_embeddings(
 
     Args:
         content_dir: Path to content directory (defaults to settings.content_base_dir).
-        model_name: Name of the embedding model to use (defaults to settings.embedding_model).
-        pattern: File pattern for chunks files (defaults to settings.embedding_pattern).
+        model: Name of the embedding model to use (defaults to settings.embedding_model).
+        pattern: Directory pattern to match (defaults to "**").
+                 Can be an exact path or use wildcards. Automatically appends '/chunks.json'.
+                 Examples: 'external/**' (all), 'docs/subdir' (exact), '**/api' (pattern)
         force: Force processing even if output already exists.
         dry_run: Show what would be processed without doing it.
 
@@ -104,45 +114,51 @@ def generate_embeddings(
 
     if content_dir is None:
         content_dir = settings.content_base_dir
-    if model_name is None:
-        model_name = settings.embedding_model
+    if model is None:
+        model = settings.embedding_model
     if pattern is None:
-        pattern = settings.embedding_pattern
+        pattern = "**"
+
+    # Append /chunks.json to the pattern
+    # Works for both exact directory paths and glob patterns:
+    # - "dir/subdir" -> "dir/subdir/chunks.json" (exact file)
+    # - "dir/**" -> "dir/**/chunks.json" (glob pattern)
+    pattern = f"{pattern}/chunks.json"
 
     start = time.time()
 
-    embedding = Embedding.from_name(model_name)
+    embedding = Embedding.from_name(model)
     embedding.ensure_available()
 
     logger.info(
         "\nEmbedding configuration:\n"
-        f"  Model     : {embedding.model_id}\n"
+        f"  Model     : {embedding.model}\n"
         f"  Dimensions: {embedding.dimensions}\n"
         f"  Device    : {embedding.device}"
     )
 
-    count, chunks_iter = chunks_files(content_dir, pattern)
+    chunks_list = chunks_files(content_dir, pattern)
 
-    if count == 0:
+    if len(chunks_list) == 0:
         logger.warning(f"No chunks files found matching pattern: {pattern}")
         return True
 
     if dry_run:
         logger.info("DRY RUN - would process:")
-        for file in chunks_iter:
+        for file in chunks_list:
             logger.info(f"  {file}")
-        logger.info(f"DRY RUN complete - found {count} chunks files")
+        logger.info(f"DRY RUN complete - found {len(chunks_list)} chunks files")
         return True
 
     embedder = BatchProcessor(
         worker_function=generate_embeddings_batch,
-        worker_args=(model_name, force),
+        worker_args=(model, force),
         progress_message="Embedding files...",
         batch_size=8,
         mem_threshold_mb=1800,
         max_workers=2,
     )
-    embedded, errors = embedder.process_files(chunks_iter, count)
+    embedded, errors = embedder.process_files(chunks_list)
     end = time.time()
 
     if errors > 0:
