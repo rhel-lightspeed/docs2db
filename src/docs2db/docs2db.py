@@ -11,6 +11,7 @@ from docs2db.audit import perform_audit
 from docs2db.chunks import generate_chunks
 from docs2db.database import (
     check_database_status,
+    configure_rag_settings,
     dump_database,
     generate_manifest,
     load_documents,
@@ -392,6 +393,76 @@ def audit(
             pattern=pattern,
         ):
             raise typer.Exit(1)
+    except Docs2DBException as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+
+@app.command()
+def config(
+    refinement_prompt: Annotated[
+        Optional[str],
+        typer.Option(help="Custom prompt for query refinement (use 'None' to clear)"),
+    ] = None,
+    refinement: Annotated[
+        Optional[str], typer.Option(help="Enable question refinement: true/false/None")
+    ] = None,
+    reranking: Annotated[
+        Optional[str],
+        typer.Option(help="Enable cross-encoder reranking: true/false/None"),
+    ] = None,
+    similarity_threshold: Annotated[
+        Optional[str],
+        typer.Option(help="Similarity threshold 0.0-1.0 (use 'None' to clear)"),
+    ] = None,
+    max_chunks: Annotated[
+        Optional[str],
+        typer.Option(help="Maximum chunks to return (use 'None' to clear)"),
+    ] = None,
+    max_tokens_in_context: Annotated[
+        Optional[str],
+        typer.Option(help="Maximum tokens in context (use 'None' to clear)"),
+    ] = None,
+    refinement_questions_count: Annotated[
+        Optional[str],
+        typer.Option(help="Number of refined questions (use 'None' to clear)"),
+    ] = None,
+    host: Annotated[Optional[str], typer.Option(help="Database host")] = None,
+    port: Annotated[Optional[int], typer.Option(help="Database port")] = None,
+    db: Annotated[Optional[str], typer.Option(help="Database name")] = None,
+    user: Annotated[Optional[str], typer.Option(help="Database user")] = None,
+    password: Annotated[Optional[str], typer.Option(help="Database password")] = None,
+) -> None:
+    """Configure RAG settings in the database.
+
+    Settings are stored in the database and used by docs2db-api for retrieval.
+    The database schema will be initialized if it doesn't already exist.
+    All settings are optional - only provide the ones you want to change.
+    Use "None" (string) to clear any setting (set to NULL in database).
+
+    Examples:
+      docs2db config --refinement true --reranking false
+      docs2db config --refinement-prompt "Custom prompt here"
+      docs2db config --max-chunks 20 --similarity-threshold 0.8
+      docs2db config --refinement-prompt None --reranking None  # Clear settings
+    """
+    try:
+        asyncio.run(
+            configure_rag_settings(
+                refinement_prompt=refinement_prompt,
+                refinement=refinement,
+                reranking=reranking,
+                similarity_threshold=similarity_threshold,
+                max_chunks=max_chunks,
+                max_tokens_in_context=max_tokens_in_context,
+                refinement_questions_count=refinement_questions_count,
+                host=host,
+                port=port,
+                db=db,
+                user=user,
+                password=password,
+            )
+        )
     except Docs2DBException as e:
         logger.error(str(e))
         raise typer.Exit(1)

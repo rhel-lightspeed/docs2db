@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2025-11-12
+
+### Added
+- New `config` command to configure RAG settings in the database
+  - Settings include: `refinement_prompt`, `refinement`, `reranking`, `similarity_threshold`, `max_chunks`, `max_tokens_in_context`, `refinement_questions_count`
+  - All settings accept string values: booleans as `true/false/None`, numbers as strings, or `"None"` to clear
+  - Boolean values accept: `true`, `false`, `t`, `f`, `yes`, `no`, `y`, `n`, `1`, `0`
+  - Settings are stored in new `rag_settings` database table
+  - Intended for use with docs2db-api, which reads and applies these settings with appropriate priority
+- `db-status` command now displays RAG settings from the database
+- New `rag_settings` table in database schema (singleton table with constraint `id = 1`)
+- New `configure_rag_settings()` function in `database.py` for programmatic configuration
+
 ## [0.4.0] - 2025-11-11
 
 ### Changed
@@ -142,7 +155,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite
 - Development tooling: Makefile, Docker Compose setup for PostgreSQL
 
-[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/rhel-lightspeed/docs2db/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.2.0...v0.2.1

@@ -481,6 +481,19 @@ class DatabaseManager:
             notes TEXT
         );
 
+        -- RAG settings: configuration for retrieval behavior (singleton table)
+        CREATE TABLE IF NOT EXISTS rag_settings (
+            id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+            refinement_prompt TEXT,
+            enable_refinement BOOLEAN,
+            enable_reranking BOOLEAN,
+            similarity_threshold FLOAT,
+            max_chunks INT,
+            max_tokens_in_context INT,
+            refinement_questions_count INT,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
         -- Indexes for better performance
         CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path);
         CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
@@ -510,6 +523,16 @@ class DatabaseManager:
                     BEFORE UPDATE ON documents
                     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
             END IF;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'update_rag_settings_updated_at'
+                AND tgrelid = 'rag_settings'::regclass
+            ) THEN
+                CREATE TRIGGER update_rag_settings_updated_at
+                    BEFORE UPDATE ON rag_settings
+                    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+            END IF;
         END
         $$;
         """
@@ -528,6 +551,179 @@ class DatabaseManager:
 
                 await conn.commit()
                 logger.info("Database schema initialized successfully")
+
+    async def update_rag_settings(
+        self,
+        refinement_prompt: Optional[str] = None,
+        enable_refinement: Optional[bool] = None,
+        enable_reranking: Optional[bool] = None,
+        similarity_threshold: Optional[float] = None,
+        max_chunks: Optional[int] = None,
+        max_tokens_in_context: Optional[int] = None,
+        refinement_questions_count: Optional[int] = None,
+        _clear_refinement_prompt: bool = False,
+        _clear_enable_refinement: bool = False,
+        _clear_enable_reranking: bool = False,
+        _clear_similarity_threshold: bool = False,
+        _clear_max_chunks: bool = False,
+        _clear_max_tokens_in_context: bool = False,
+        _clear_refinement_questions_count: bool = False,
+    ) -> None:
+        """Update RAG settings in the database.
+
+        Creates the settings row if it doesn't exist, otherwise updates it.
+        Only updates fields that are not None (or explicitly cleared).
+
+        Args:
+            refinement_prompt: Custom prompt for query refinement
+            enable_refinement: Enable/disable question refinement
+            enable_reranking: Enable/disable cross-encoder reranking
+            similarity_threshold: Similarity threshold for filtering results
+            max_chunks: Maximum number of chunks to return
+            max_tokens_in_context: Maximum tokens in context window
+            refinement_questions_count: Number of refined questions to generate
+            _clear_*: If True, explicitly set the field to NULL
+        """
+        async with await self.get_direct_connection() as conn:
+            # Check if settings row exists
+            result = await conn.execute("SELECT id FROM rag_settings WHERE id = 1")
+            row = await result.fetchone()
+
+            if row is None:
+                # Insert new row with provided values
+                await conn.execute(
+                    """
+                    INSERT INTO rag_settings (
+                        id, refinement_prompt, enable_refinement, enable_reranking,
+                        similarity_threshold, max_chunks, max_tokens_in_context,
+                        refinement_questions_count
+                    ) VALUES (1, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        refinement_prompt,
+                        enable_refinement,
+                        enable_reranking,
+                        similarity_threshold,
+                        max_chunks,
+                        max_tokens_in_context,
+                        refinement_questions_count,
+                    ],
+                )
+                logger.info("RAG settings created in database")
+            else:
+                # Build UPDATE statement dynamically for non-None values
+                updates = []
+                values = []
+                updated_fields = []  # Track field names for logging
+
+                # Handle each field - clear flag takes precedence
+                if _clear_refinement_prompt:
+                    updates.append("refinement_prompt = %s")
+                    values.append(None)
+                    updated_fields.append("refinement_prompt")
+                elif refinement_prompt is not None:
+                    updates.append("refinement_prompt = %s")
+                    values.append(refinement_prompt)
+                    updated_fields.append("refinement_prompt")
+
+                if _clear_enable_refinement:
+                    updates.append("enable_refinement = %s")
+                    values.append(None)
+                    updated_fields.append("enable_refinement")
+                elif enable_refinement is not None:
+                    updates.append("enable_refinement = %s")
+                    values.append(enable_refinement)
+                    updated_fields.append("enable_refinement")
+
+                if _clear_enable_reranking:
+                    updates.append("enable_reranking = %s")
+                    values.append(None)
+                    updated_fields.append("enable_reranking")
+                elif enable_reranking is not None:
+                    updates.append("enable_reranking = %s")
+                    values.append(enable_reranking)
+                    updated_fields.append("enable_reranking")
+
+                if _clear_similarity_threshold:
+                    updates.append("similarity_threshold = %s")
+                    values.append(None)
+                    updated_fields.append("similarity_threshold")
+                elif similarity_threshold is not None:
+                    updates.append("similarity_threshold = %s")
+                    values.append(similarity_threshold)
+                    updated_fields.append("similarity_threshold")
+
+                if _clear_max_chunks:
+                    updates.append("max_chunks = %s")
+                    values.append(None)
+                    updated_fields.append("max_chunks")
+                elif max_chunks is not None:
+                    updates.append("max_chunks = %s")
+                    values.append(max_chunks)
+                    updated_fields.append("max_chunks")
+
+                if _clear_max_tokens_in_context:
+                    updates.append("max_tokens_in_context = %s")
+                    values.append(None)
+                    updated_fields.append("max_tokens_in_context")
+                elif max_tokens_in_context is not None:
+                    updates.append("max_tokens_in_context = %s")
+                    values.append(max_tokens_in_context)
+                    updated_fields.append("max_tokens_in_context")
+
+                if _clear_refinement_questions_count:
+                    updates.append("refinement_questions_count = %s")
+                    values.append(None)
+                    updated_fields.append("refinement_questions_count")
+                elif refinement_questions_count is not None:
+                    updates.append("refinement_questions_count = %s")
+                    values.append(refinement_questions_count)
+                    updated_fields.append("refinement_questions_count")
+
+                if updates:
+                    update_sql = (
+                        f"UPDATE rag_settings SET {', '.join(updates)} WHERE id = 1"
+                    )
+                    await conn.execute(update_sql, values)
+                    logger.info(f"RAG settings updated: {', '.join(updated_fields)}")
+                else:
+                    logger.info("No RAG settings to update (all values were None)")
+
+            await conn.commit()
+
+    async def get_rag_settings(self) -> Optional[Dict[str, Any]]:
+        """Get RAG settings from the database.
+
+        Returns:
+            Dictionary with RAG settings, or None if no settings exist
+        """
+        async with await self.get_direct_connection() as conn:
+            try:
+                result = await conn.execute(
+                    """
+                    SELECT refinement_prompt, enable_refinement, enable_reranking,
+                           similarity_threshold, max_chunks, max_tokens_in_context,
+                           refinement_questions_count
+                    FROM rag_settings WHERE id = 1
+                    """
+                )
+                row = await result.fetchone()
+
+                if row is None:
+                    return None
+
+                return {
+                    "refinement_prompt": row[0],
+                    "enable_refinement": row[1],
+                    "enable_reranking": row[2],
+                    "similarity_threshold": row[3],
+                    "max_chunks": row[4],
+                    "max_tokens_in_context": row[5],
+                    "refinement_questions_count": row[6],
+                }
+            except Exception as e:
+                logger.warning(f"Could not retrieve RAG settings: {e}")
+                return None
 
     async def load_document_batch(
         self,
@@ -1129,6 +1325,45 @@ async def check_database_status(
             if size_row:
                 db_size = size_row[0]
                 logger.info(f"Database size: {db_size}")
+
+    # Display RAG settings if configured
+    rag_settings = await db_manager.get_rag_settings()
+    if rag_settings:
+        # Format non-None settings for display
+        settings_lines = []
+        if rag_settings["enable_refinement"] is not None:
+            settings_lines.append(
+                f"  enable_refinement         : {rag_settings['enable_refinement']}"
+            )
+        if rag_settings["enable_reranking"] is not None:
+            settings_lines.append(
+                f"  enable_reranking          : {rag_settings['enable_reranking']}"
+            )
+        if rag_settings["similarity_threshold"] is not None:
+            settings_lines.append(
+                f"  similarity_threshold      : {rag_settings['similarity_threshold']}"
+            )
+        if rag_settings["max_chunks"] is not None:
+            settings_lines.append(
+                f"  max_chunks                : {rag_settings['max_chunks']}"
+            )
+        if rag_settings["max_tokens_in_context"] is not None:
+            settings_lines.append(
+                f"  max_tokens_in_context     : {rag_settings['max_tokens_in_context']}"
+            )
+        if rag_settings["refinement_questions_count"] is not None:
+            settings_lines.append(
+                f"  refinement_questions_count: {rag_settings['refinement_questions_count']}"
+            )
+        if rag_settings["refinement_prompt"] is not None:
+            # Truncate prompt if too long
+            prompt_preview = rag_settings["refinement_prompt"][:100]
+            if len(rag_settings["refinement_prompt"]) > 100:
+                prompt_preview += "..."
+            settings_lines.append(f"  refinement_prompt         : {prompt_preview}")
+
+        if settings_lines:
+            logger.info("\nRAG settings:\n" + "\n".join(settings_lines))
 
     logger.info("Database status check complete")
 
@@ -1797,3 +2032,165 @@ async def generate_manifest(
     )
 
     return await db_manager.generate_manifest(output_file)
+
+
+async def configure_rag_settings(
+    refinement_prompt: Optional[str] = None,
+    refinement: Optional[str] = None,
+    reranking: Optional[str] = None,
+    similarity_threshold: Optional[str] = None,
+    max_chunks: Optional[str] = None,
+    max_tokens_in_context: Optional[str] = None,
+    refinement_questions_count: Optional[str] = None,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    db: Optional[str] = None,
+    user: Optional[str] = None,
+    password: Optional[str] = None,
+) -> None:
+    """Configure RAG settings in the database.
+
+    All RAG setting parameters accept string values including "None" to clear.
+    Database connection parameters are auto-detected if not provided.
+
+    Args:
+        refinement_prompt: Custom prompt for query refinement (use 'None' to clear)
+        refinement: Enable question refinement: true/false/None
+        reranking: Enable cross-encoder reranking: true/false/None
+        similarity_threshold: Similarity threshold 0.0-1.0 (use 'None' to clear)
+        max_chunks: Maximum chunks to return (use 'None' to clear)
+        max_tokens_in_context: Maximum tokens in context (use 'None' to clear)
+        refinement_questions_count: Number of refined questions (use 'None' to clear)
+        host: Database host (auto-detected if not provided)
+        port: Database port (auto-detected if not provided)
+        db: Database name (auto-detected if not provided)
+        user: Database user (auto-detected if not provided)
+        password: Database password (auto-detected if not provided)
+
+    Raises:
+        ConfigurationError: If any setting has an invalid value or database config is invalid
+        DatabaseError: If database operations fail
+    """
+    # Parse string values and track which settings to clear
+    clear_flags = {}
+    parsed_values = {}
+
+    # Helper function to parse boolean string
+    def parse_bool(value: str | None, name: str) -> tuple[bool | None, bool]:
+        """Returns (parsed_value, should_clear)"""
+        if value is None:
+            return None, False
+        if value.lower() == "none":
+            return None, True
+        if value.lower() in ("true", "t", "yes", "y", "1"):
+            return True, False
+        if value.lower() in ("false", "f", "no", "n", "0"):
+            return False, False
+        raise ConfigurationError(f"{name}: must be true/false/None, got '{value}'")
+
+    # Helper function to parse numeric string
+    def parse_number(
+        value: str | None, name: str, type_func: type[int] | type[float] = int
+    ) -> tuple[int | float | None, bool]:
+        """Returns (parsed_value, should_clear)"""
+        if value is None:
+            return None, False
+        if value.lower() == "none":
+            return None, True
+        try:
+            return type_func(value), False
+        except ValueError:
+            raise ConfigurationError(
+                f"{name}: must be a number or 'None', got '{value}'"
+            )
+
+    # Parse refinement_prompt (string)
+    if refinement_prompt is not None:
+        if refinement_prompt == "None":
+            parsed_values["refinement_prompt"] = None
+            clear_flags["refinement_prompt"] = True
+        else:
+            parsed_values["refinement_prompt"] = refinement_prompt
+            clear_flags["refinement_prompt"] = False
+
+    # Parse booleans
+    if refinement is not None:
+        val, clear = parse_bool(refinement, "--refinement")
+        parsed_values["enable_refinement"] = val
+        clear_flags["enable_refinement"] = clear
+
+    if reranking is not None:
+        val, clear = parse_bool(reranking, "--reranking")
+        parsed_values["enable_reranking"] = val
+        clear_flags["enable_reranking"] = clear
+
+    # Parse numeric values
+    if similarity_threshold is not None:
+        val, clear = parse_number(similarity_threshold, "--similarity-threshold", float)
+        parsed_values["similarity_threshold"] = val
+        clear_flags["similarity_threshold"] = clear
+
+    if max_chunks is not None:
+        val, clear = parse_number(max_chunks, "--max-chunks", int)
+        parsed_values["max_chunks"] = val
+        clear_flags["max_chunks"] = clear
+
+    if max_tokens_in_context is not None:
+        val, clear = parse_number(max_tokens_in_context, "--max-tokens-in-context", int)
+        parsed_values["max_tokens_in_context"] = val
+        clear_flags["max_tokens_in_context"] = clear
+
+    if refinement_questions_count is not None:
+        val, clear = parse_number(
+            refinement_questions_count, "--refinement-questions-count", int
+        )
+        parsed_values["refinement_questions_count"] = val
+        clear_flags["refinement_questions_count"] = clear
+
+    # Check if any settings were provided
+    if not parsed_values and not clear_flags:
+        raise ConfigurationError("No settings provided")
+
+    # Get database configuration
+    config = get_db_config()
+    db_host = host if host is not None else config["host"]
+    db_port = port if port is not None else int(config["port"])
+    db_name = db if db is not None else config["database"]
+    db_user = user if user is not None else config["user"]
+    db_password = password if password is not None else config["password"]
+
+    logger.info(
+        f"Updating RAG settings in database: {db_user}@{db_host}:{db_port}/{db_name}"
+    )
+
+    # Create database manager
+    db_manager = DatabaseManager(
+        host=db_host,
+        port=db_port,
+        database=db_name,
+        user=db_user,
+        password=db_password,
+    )
+
+    # Initialize schema (if needed) and update settings
+    await db_manager.initialize_schema()
+    await db_manager.update_rag_settings(
+        refinement_prompt=parsed_values.get("refinement_prompt"),
+        enable_refinement=parsed_values.get("enable_refinement"),
+        enable_reranking=parsed_values.get("enable_reranking"),
+        similarity_threshold=parsed_values.get("similarity_threshold"),
+        max_chunks=parsed_values.get("max_chunks"),
+        max_tokens_in_context=parsed_values.get("max_tokens_in_context"),
+        refinement_questions_count=parsed_values.get("refinement_questions_count"),
+        _clear_refinement_prompt=clear_flags.get("refinement_prompt", False),
+        _clear_enable_refinement=clear_flags.get("enable_refinement", False),
+        _clear_enable_reranking=clear_flags.get("enable_reranking", False),
+        _clear_similarity_threshold=clear_flags.get("similarity_threshold", False),
+        _clear_max_chunks=clear_flags.get("max_chunks", False),
+        _clear_max_tokens_in_context=clear_flags.get("max_tokens_in_context", False),
+        _clear_refinement_questions_count=clear_flags.get(
+            "refinement_questions_count", False
+        ),
+    )
+
+    logger.info("✅ RAG settings updated successfully")

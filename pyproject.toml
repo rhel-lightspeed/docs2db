@@ -1,6 +1,6 @@
 [project]
 name = "docs2db"
-version = "0.4.0"
+version = "0.4.1"
 description = "Repository of docling documents for RAG"
 readme = "README.md"
 authors = [{ name = "Ellis Low", email = "elow@redhat.com" }]

@@ -368,3 +368,361 @@ class TestCLIIntegrationSQL:
 
         except Exception as e:
             pytest.fail(f"Test failed with exception: {e}")
+
+    @pytest.mark.no_ci
+    @pytest.mark.asyncio
+    async def test_config_command_stores_rag_settings(self):
+        """Test that 'uv run docs2db config' properly stores RAG settings in database."""
+        if should_skip_postgres_tests():
+            pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
+
+        config = get_test_db_config()
+
+        try:
+            # First, initialize database with load command
+            fixtures_content_dir = (
+                Path(__file__).parent / "fixtures" / "content" / "documents"
+            )
+
+            load_cmd = [
+                "uv",
+                "run",
+                "docs2db",
+                "load",
+                "--content-dir",
+                str(fixtures_content_dir),
+                "--model",
+                "ibm-granite/granite-embedding-30m-english",
+                "--pattern",
+                "**",
+                "--host",
+                config["host"],
+                "--port",
+                config["port"],
+                "--db",
+                config["database"],
+                "--user",
+                config["user"],
+                "--password",
+                config["password"],
+                "--force",
+            ]
+
+            load_result = subprocess.run(
+                load_cmd,
+                capture_output=True,
+                text=True,
+                cwd=str(PROJECT_ROOT),
+            )
+
+            assert load_result.returncode == 0, (
+                f"Load command should succeed: {load_result.stderr}"
+            )
+
+            # Connect to database
+            conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+            conn = await psycopg.AsyncConnection.connect(conn_string)
+
+            try:
+                # Verify rag_settings table exists
+                assert await check_table_exists(conn, "rag_settings"), (
+                    "rag_settings table should exist after schema initialization"
+                )
+
+                # Verify rag_settings is initially empty (no settings row)
+                initial_count = await count_records(conn, "rag_settings")
+                assert initial_count == 0, "rag_settings should be empty initially"
+
+                # Now run config command to set some settings
+                config_cmd = [
+                    "uv",
+                    "run",
+                    "docs2db",
+                    "config",
+                    "--refinement",
+                    "false",
+                    "--reranking",
+                    "true",
+                    "--similarity-threshold",
+                    "0.85",
+                    "--max-chunks",
+                    "20",
+                    "--max-tokens-in-context",
+                    "8192",
+                    "--refinement-questions-count",
+                    "3",
+                    "--refinement-prompt",
+                    "Test custom prompt with {question}",
+                    "--host",
+                    config["host"],
+                    "--port",
+                    config["port"],
+                    "--db",
+                    config["database"],
+                    "--user",
+                    config["user"],
+                    "--password",
+                    config["password"],
+                ]
+
+                config_result = subprocess.run(
+                    config_cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(PROJECT_ROOT),
+                )
+
+                assert config_result.returncode == 0, (
+                    f"Config command should succeed: {config_result.stderr}"
+                )
+                assert "RAG settings updated successfully" in config_result.stdout, (
+                    "Should show success message"
+                )
+
+                # Verify settings were stored in database
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT refinement_prompt, enable_refinement, enable_reranking,
+                               similarity_threshold, max_chunks, max_tokens_in_context,
+                               refinement_questions_count
+                        FROM rag_settings WHERE id = 1
+                        """
+                    )
+                    row = await cur.fetchone()
+
+                    assert row is not None, (
+                        "Settings row should exist after config command"
+                    )
+
+                    (
+                        refinement_prompt,
+                        enable_refinement,
+                        enable_reranking,
+                        similarity_threshold,
+                        max_chunks,
+                        max_tokens_in_context,
+                        refinement_questions_count,
+                    ) = row
+
+                    # Verify each setting
+                    assert refinement_prompt == "Test custom prompt with {question}", (
+                        "Refinement prompt should match"
+                    )
+                    assert enable_refinement is False, (
+                        "enable_refinement should be False"
+                    )
+                    assert enable_reranking is True, "enable_reranking should be True"
+                    assert similarity_threshold == 0.85, (
+                        "similarity_threshold should be 0.85"
+                    )
+                    assert max_chunks == 20, "max_chunks should be 20"
+                    assert max_tokens_in_context == 8192, (
+                        "max_tokens_in_context should be 8192"
+                    )
+                    assert refinement_questions_count == 3, (
+                        "refinement_questions_count should be 3"
+                    )
+
+                # Test updating settings (partial update)
+                update_cmd = [
+                    "uv",
+                    "run",
+                    "docs2db",
+                    "config",
+                    "--refinement",
+                    "true",
+                    "--max-chunks",
+                    "15",
+                    "--host",
+                    config["host"],
+                    "--port",
+                    config["port"],
+                    "--db",
+                    config["database"],
+                    "--user",
+                    config["user"],
+                    "--password",
+                    config["password"],
+                ]
+
+                update_result = subprocess.run(
+                    update_cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(PROJECT_ROOT),
+                )
+
+                assert update_result.returncode == 0, (
+                    f"Config update should succeed: {update_result.stderr}"
+                )
+
+                # Verify only specified settings were updated, others remain unchanged
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT enable_refinement, enable_reranking,
+                               similarity_threshold, max_chunks, refinement_prompt
+                        FROM rag_settings WHERE id = 1
+                        """
+                    )
+                    row = await cur.fetchone()
+
+                    assert row is not None, "Settings row should still exist"
+
+                    (
+                        enable_refinement,
+                        enable_reranking,
+                        similarity_threshold,
+                        max_chunks,
+                        refinement_prompt,
+                    ) = row
+
+                    # Updated values
+                    assert enable_refinement is True, (
+                        "enable_refinement should be updated to True"
+                    )
+                    assert max_chunks == 15, "max_chunks should be updated to 15"
+
+                    # Unchanged values
+                    assert enable_reranking is True, (
+                        "enable_reranking should remain True"
+                    )
+                    assert similarity_threshold == 0.85, (
+                        "similarity_threshold should remain 0.85"
+                    )
+                    assert refinement_prompt == "Test custom prompt with {question}", (
+                        "refinement_prompt should remain unchanged"
+                    )
+
+                # Test that config command fails when no settings provided
+                empty_cmd = [
+                    "uv",
+                    "run",
+                    "docs2db",
+                    "config",
+                    "--host",
+                    config["host"],
+                    "--port",
+                    config["port"],
+                    "--db",
+                    config["database"],
+                    "--user",
+                    config["user"],
+                    "--password",
+                    config["password"],
+                ]
+
+                empty_result = subprocess.run(
+                    empty_cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(PROJECT_ROOT),
+                )
+
+                assert empty_result.returncode != 0, (
+                    "Config command should fail when no settings provided"
+                )
+                assert "No settings provided" in empty_result.stdout, (
+                    "Should show error message about no settings"
+                )
+
+                # Test clearing string settings with "None"
+                clear_prompt_cmd = [
+                    "uv",
+                    "run",
+                    "docs2db",
+                    "config",
+                    "--refinement-prompt",
+                    "None",
+                    "--host",
+                    config["host"],
+                    "--port",
+                    config["port"],
+                    "--db",
+                    config["database"],
+                    "--user",
+                    config["user"],
+                    "--password",
+                    config["password"],
+                ]
+
+                clear_result = subprocess.run(
+                    clear_prompt_cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(PROJECT_ROOT),
+                )
+
+                assert clear_result.returncode == 0, (
+                    f"Config command with None should succeed: {clear_result.stderr}"
+                )
+
+                # Verify refinement_prompt was cleared (set to NULL)
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT refinement_prompt FROM rag_settings WHERE id = 1"
+                    )
+                    row = await cur.fetchone()
+                    assert row is not None, "Settings row should still exist"
+                    assert row[0] is None, (
+                        "refinement_prompt should be NULL after clearing with 'None'"
+                    )
+
+                # Test clearing boolean and numeric settings with "None"
+                clear_all_cmd = [
+                    "uv",
+                    "run",
+                    "docs2db",
+                    "config",
+                    "--refinement",
+                    "None",
+                    "--reranking",
+                    "None",
+                    "--max-chunks",
+                    "None",
+                    "--similarity-threshold",
+                    "None",
+                    "--host",
+                    config["host"],
+                    "--port",
+                    config["port"],
+                    "--db",
+                    config["database"],
+                    "--user",
+                    config["user"],
+                    "--password",
+                    config["password"],
+                ]
+
+                clear_all_result = subprocess.run(
+                    clear_all_cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(PROJECT_ROOT),
+                )
+
+                assert clear_all_result.returncode == 0, (
+                    f"Config command to clear all should succeed: {clear_all_result.stderr}"
+                )
+
+                # Verify all settings were cleared
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT enable_refinement, enable_reranking, max_chunks, similarity_threshold
+                        FROM rag_settings WHERE id = 1
+                        """
+                    )
+                    row = await cur.fetchone()
+                    assert row is not None, "Settings row should still exist"
+                    assert row[0] is None, "enable_refinement should be NULL"
+                    assert row[1] is None, "enable_reranking should be NULL"
+                    assert row[2] is None, "max_chunks should be NULL"
+                    assert row[3] is None, "similarity_threshold should be NULL"
+
+            finally:
+                await conn.close()
+
+        except Exception as e:
+            pytest.fail(f"Test failed with exception: {e}")
