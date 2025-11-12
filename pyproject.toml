@@ -1,10 +1,33 @@
 [project]
 name = "docs2db"
-version = "0.4.1"
+version = "0.4.2"
 description = "Repository of docling documents for RAG"
 readme = "README.md"
 authors = [{ name = "Ellis Low", email = "elow@redhat.com" }]
+license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
+keywords = [
+    "rag",
+    "document-processing",
+    "embeddings",
+    "docling",
+    "contextual-retrieval",
+    "semantic-search",
+    "vector-database",
+    "pgvector",
+    "postgresql",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: General",
+]
 dependencies = [
     "cachetools>=6.1.0",
     "docling>=2.42.1",
@@ -28,6 +51,13 @@ watsonx = [
 
 [project.scripts]
 docs2db = "docs2db.docs2db:app"
+
+[project.urls]
+Homepage = "https://github.com/rhel-lightspeed/docs2db"
+Documentation = "https://github.com/rhel-lightspeed/docs2db#readme"
+Repository = "https://github.com/rhel-lightspeed/docs2db"
+Issues = "https://github.com/rhel-lightspeed/docs2db/issues"
+Changelog = "https://github.com/rhel-lightspeed/docs2db/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["uv_build>=0.8.2,<0.9.0"]

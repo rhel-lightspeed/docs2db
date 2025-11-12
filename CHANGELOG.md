@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2025-11-12
+
+### Changed
+- Enhanced PyPI package metadata in `pyproject.toml`:
+  - Added keywords for better discoverability: `rag`, `document-processing`, `embeddings`, `docling`, `contextual-retrieval`, `semantic-search`, `vector-database`, `pgvector`, `postgresql`, `llm`
+  - Added PyPI classifiers for proper categorization (Development Status, License, Python version, Topics)
+  - Added explicit Apache-2.0 license declaration
+  - Added project URLs (Homepage, Documentation, Repository, Issues, Changelog)
+
 ## [0.4.1] - 2025-11-12
 
 ### Added
@@ -155,7 +164,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite
 - Development tooling: Makefile, Docker Compose setup for PostgreSQL
 
-[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.0...v0.3.1
