@@ -369,7 +369,7 @@ wheels = [
 
 [[package]]
 name = "docs2db"
-version = "0.4.2"
+version = "0.4.3"
 source = { editable = "." }
 dependencies = [
     { name = "cachetools" },

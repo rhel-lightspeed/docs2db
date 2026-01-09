@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2025-01-09
+
+### Fixed
+- Embedding deadlock on ARM Linux caused by forking after PyTorch initialization
+
+### Added
+- `--workers` option for `docs2db embed` command to control parallelism
+  - Use `--workers 1` for single-threaded mode (avoids fork issues on ARM)
+  - Default behavior unchanged (2 workers)
+
 ## [0.4.2] - 2025-11-12
 
 ### Changed
@@ -164,7 +174,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite
 - Development tooling: Makefile, Docker Compose setup for PostgreSQL
 
-[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/rhel-lightspeed/docs2db/compare/v0.3.1...v0.4.0

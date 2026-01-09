@@ -96,6 +96,7 @@ def generate_embeddings(
     pattern: str | None = None,
     force: bool = False,
     dry_run: bool = False,
+    max_workers: int | None = None,
 ) -> bool:
     """Generate embedding files using multiprocessing, with a progress bar.
 
@@ -107,6 +108,8 @@ def generate_embeddings(
                  Examples: 'external/**' (all), 'docs/subdir' (exact), '**/api' (pattern)
         force: Force processing even if output already exists.
         dry_run: Show what would be processed without doing it.
+        max_workers: Maximum worker processes. Use 1 for single-threaded mode
+                     (avoids fork issues on ARM Linux).
 
     Returns:
         bool: True if successful, False if any errors occurred.
@@ -156,7 +159,7 @@ def generate_embeddings(
         progress_message="Embedding files...",
         batch_size=8,
         mem_threshold_mb=1800,
-        max_workers=2,
+        max_workers=max_workers if max_workers else 2,
     )
     embedded, errors = embedder.process_files(chunks_list)
     end = time.time()
