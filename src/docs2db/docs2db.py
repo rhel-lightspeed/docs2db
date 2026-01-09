@@ -149,6 +149,12 @@ def embed(
     dry_run: Annotated[
         bool, typer.Option(help="Show what would process without doing it")
     ] = False,
+    workers: Annotated[
+        int | None,
+        typer.Option(
+            help="Max worker processes (1 = single-threaded, avoids fork issues on ARM)"
+        ),
+    ] = None,
 ) -> None:
     """Generate embeddings for chunked content files."""
     try:
@@ -158,6 +164,7 @@ def embed(
             pattern=pattern,
             force=force,
             dry_run=dry_run,
+            max_workers=workers,
         ):
             raise typer.Exit(1)
     except Docs2DBException as e:

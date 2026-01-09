@@ -202,6 +202,12 @@ class BatchProcessor:
         """
         count = len(to_process)
         self.max_workers = worker_count(count, max_workers=self.max_workers)
+
+        # Use single-threaded processing when max_workers=1
+        # This avoids fork issues on ARM Linux and other platforms
+        if self.max_workers == 1:
+            return self._process_single_threaded(to_process)
+
         batches = batch_generator(to_process, self.batch_size)
 
         self.console.print(
@@ -225,6 +231,62 @@ class BatchProcessor:
         self._restore_logging()
         self._display_errors()
 
+        return self.processed, self.errors
+
+    def _process_single_threaded(
+        self,
+        to_process: list[Path],
+    ) -> tuple[int, int]:
+        """Process files in single-threaded mode (no forking).
+
+        Used when max_workers=1 to avoid fork-related issues on ARM Linux
+        and other platforms where forking after loading PyTorch causes deadlocks.
+
+        Args:
+            to_process: List of Path objects to process
+
+        Returns:
+            tuple[int, int]: (num_processed, num_failed)
+        """
+        count = len(to_process)
+        self.console.print(
+            f"[blue]Processing {count} files in single-threaded mode[/blue]"
+        )
+
+        batches = list(batch_generator(to_process, self.batch_size))
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(bar_width=None),
+            TextColumn("{task.percentage:>3.0f}%"),
+            TextColumn("{task.completed:>6}/{task.total:<6}"),
+            TextColumn("err:{task.fields[errors]:>6}"),
+            TimeRemainingColumn(),
+            console=self.console,
+            expand=True,
+        ) as progress:
+            task = progress.add_task(
+                self.progress_message,
+                total=count,
+                completed=0,
+                errors=0,
+            )
+
+            for batch in batches:
+                result = self.worker_function(batch, *self.worker_args)
+
+                self.processed += len(batch)
+                self.errors += result["errors"]
+                self.error_data.extend(result["error_data"])
+
+                progress.update(
+                    task,
+                    completed=self.processed,
+                    errors=self.errors,
+                )
+
+        self._display_errors()
         return self.processed, self.errors
 
     def _setup_logging(self):
