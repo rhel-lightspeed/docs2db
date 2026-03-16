@@ -1018,7 +1018,28 @@ class DatabaseManager:
             chunk_row = await chunk_result.fetchone()
             chunk_count = chunk_row[0] if chunk_row else 0
 
+            # Check if models table exists
+            models_check = await conn.execute(
+                """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                    AND table_name = 'models'
+                )
+                """
+            )
+            models_row = await models_check.fetchone()
+            has_models_table = models_row[0] if models_row else False
+
+            if not has_models_table:
+                raise DatabaseError(
+                    "Missing 'models' table - database schema is incomplete. "
+                    "Run 'docs2db db-destroy' then 'docs2db load' or 'docs2db db-restore' "
+                    "to recreate with proper schema."
+                )
+
             # Embedding stats by model (join with models table)
+            embedding_models = {}
             embedding_stats = await conn.execute(
                 """
                 SELECT m.name, COUNT(e.id) as count, m.dimensions
@@ -1028,7 +1049,6 @@ class DatabaseManager:
                 ORDER BY m.name
                 """
             )
-            embedding_models = {}
             async for row in embedding_stats:
                 model, count, dimensions = row
                 embedding_models[model] = {

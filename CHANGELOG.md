@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-03-16
+
+### Fixed
+- Pipeline command now correctly finds source and chunks files
+  - Fixed glob pattern bug where `**/*.json` was being appended with `/source.json`, creating invalid pattern `**/*.json/source.json`
+  - Changed patterns to `**` (directory pattern) since functions automatically append filenames
+  - Affects `pipeline` command only; individual `chunk`, `embed`, `load` commands were already correct
+- Dependency resolution for PyTorch and torchvision
+  - Added explicit `torchvision>=0.23.0` dependency to ensure it resolves from pytorch-cpu index
+  - Fixes fresh install failures where torchvision resolved from PyPI instead of pytorch-cpu
+  - Both packages now correctly use `+cpu` suffix on Linux/Windows
+- Database validation in `db-status` command
+  - Added check for `models` table existence before querying and provides helpful error message instead of cryptic SQL error if it is missing.
+
 ## [0.4.3] - 2025-01-09
 
 ### Fixed
