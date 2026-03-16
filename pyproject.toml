@@ -40,6 +40,7 @@ dependencies = [
     "rich>=14.0.0",
     "structlog>=25.4.0",
     "torch>=2.7.1",
+    "torchvision>=0.23.0",
     "tqdm>=4.67.1",
     "xxhash>=3.5.0",
 ]
