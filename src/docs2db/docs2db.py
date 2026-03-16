@@ -693,7 +693,7 @@ def pipeline(
         logger.info("[3/7] Generating chunks...")
         if not generate_chunks(
             content_dir=content_dir,
-            pattern="**/*.json",
+            pattern="**",
             force=False,
             dry_run=False,
             skip_context=skip_context,
@@ -710,7 +710,7 @@ def pipeline(
         if not generate_embeddings(
             content_dir=content_dir,
             model=model,
-            pattern="**/*.chunks.json",
+            pattern="**",
             force=False,
             dry_run=False,
         ):
@@ -722,7 +722,7 @@ def pipeline(
             load_documents(
                 content_dir=content_dir,
                 model=model,
-                pattern="**/*.json",
+                pattern="**",
                 host=None,
                 port=None,
                 db=None,
