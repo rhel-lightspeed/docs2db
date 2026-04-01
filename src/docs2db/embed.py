@@ -10,7 +10,7 @@ import psutil
 import structlog
 
 from docs2db.config import settings
-from docs2db.embeddings import Embedding
+from docs2db.embeddings import Embedding, get_optimal_device
 from docs2db.multiproc import BatchProcessor, setup_worker_logging
 
 logger = structlog.get_logger(__name__)
@@ -108,8 +108,9 @@ def generate_embeddings(
                  Examples: 'external/**' (all), 'docs/subdir' (exact), '**/api' (pattern)
         force: Force processing even if output already exists.
         dry_run: Show what would be processed without doing it.
-        max_workers: Maximum worker processes. Use 1 for single-threaded mode
-                     (avoids fork issues on ARM Linux).
+        max_workers: Maximum worker processes. If None, auto-detects optimal count:
+                     - GPU systems: 2 workers (parallel processing)
+                     - CPU-only systems: 1 worker (avoids PyTorch fork deadlocks)
 
     Returns:
         bool: True if successful, False if any errors occurred.
@@ -132,6 +133,22 @@ def generate_embeddings(
 
     embedding = Embedding.from_name(model)
     embedding.ensure_available()
+
+    # Detect device and set appropriate worker count
+    device = get_optimal_device()
+    is_cpu_only = device == "cpu"
+
+    # Determine default workers based on device
+    if max_workers is None:
+        default_workers = 1 if is_cpu_only else 2
+        max_workers = default_workers
+    elif max_workers > 1 and is_cpu_only:
+        # User explicitly set >1 workers on CPU-only system
+        logger.warning(
+            f"CPU-only system detected with {max_workers} workers. "
+            "Multiprocessing with PyTorch on CPU may cause deadlocks or slow performance. "
+            "Consider using --workers 1 for stability."
+        )
 
     logger.info(
         "\nEmbedding configuration:\n"
@@ -159,7 +176,7 @@ def generate_embeddings(
         progress_message="Embedding files...",
         batch_size=8,
         mem_threshold_mb=1800,
-        max_workers=max_workers if max_workers else 2,
+        max_workers=max_workers,
     )
     embedded, errors = embedder.process_files(chunks_list)
     end = time.time()
