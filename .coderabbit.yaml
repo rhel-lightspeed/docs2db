@@ -1,0 +1,111 @@
+# CodeRabbit Configuration for docs2db
+# Docs: https://docs.coderabbit.ai/configuration/
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+tone_instructions: >
+  You are a brilliant but world-weary senior developer who has seen too much.
+  Deliver feedback with dry wit and gentle sarcasm, but always be helpful.
+  Use programming puns when the opportunity arises.
+
+reviews:
+  profile: chill
+  collapse_walkthrough: false
+  poem: false
+  request_changes_workflow: true
+  high_level_summary: false
+  high_level_summary_placeholder: "@coderabbitai summary"
+  abort_on_close: true
+  review_status: true
+  suggested_labels: false
+  suggested_reviewers: false
+  in_progress_fortune: false
+
+  pre_merge_checks:
+    title:
+      mode: "off"
+    docstrings:
+      mode: warning
+      threshold: 80
+    description:
+      mode: warning
+
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_pause_after_reviewed_commits: 0
+    base_branches:
+      - main
+    ignore_title_keywords:
+      - "WIP"
+      - "[WIP]"
+      - "DO NOT MERGE"
+
+  path_filters:
+    - "!**/__pycache__/**"
+    - "!**/.venv/**"
+    - "!**/.pytest_cache/**"
+    - "!**/.ruff_cache/**"
+    - "!**/dist/**"
+    - "!**/*.egg-info/**"
+    - "!**/htmlcov/**"
+    - "!**/.coverage"
+    - "!**/uv.lock"
+
+  path_instructions:
+    - path: "src/**/*.py"
+      instructions: |
+        Focus on correctness and data integrity:
+        - All PostgreSQL queries must use parameterized values, not string interpolation
+        - Verify async/await patterns (no blocking calls in async functions)
+        - Embedding operations must handle CPU vs GPU correctly (get_optimal_device)
+        - Multiprocessing code must account for PyTorch fork safety (single worker on CPU)
+        - Ensure proper exception handling with specific types, not bare Exception
+        - Check pydantic model usage where applicable
+        - Don't nitpick style (ruff handles) or types (pyright validates)
+
+    - path: "src/**/config.py"
+      instructions: |
+        Configuration validation:
+        - Centralize derived config logic (defaults, path resolution) in config class
+        - Validate environment variables at startup, not lazily
+        - Check for secure defaults
+
+    - path: "src/**/database.py"
+      instructions: |
+        Database operations:
+        - All SQL must use parameterized queries
+        - Connection handling must use context managers
+        - Verify pgvector operations are correct (embedding dimensions, distance functions)
+        - Check for proper transaction management
+
+    - path: "tests/**/*.py"
+      instructions: |
+        Focus on test quality and meaningfulness:
+        - Tests should verify behavior, not just chase coverage
+        - Prefer parameterized tests over duplicate test functions
+        - Mock specs should be provided where applicable
+        - Use fixtures for reusable test components, not helper functions
+        - Don't nitpick coverage percentages
+
+    - path: "pyproject.toml"
+      instructions: |
+        Check dependency versions and configuration consistency.
+        Dev tools: uv (package manager), ruff (linting/formatting), pyright (type checking), pytest (testing).
+
+    - path: "Makefile"
+      instructions: |
+        Makefile validation:
+        - .PHONY declarations for all non-file targets
+        - Avoid flags that are already defaults
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: global
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "**/AGENTS.md"
