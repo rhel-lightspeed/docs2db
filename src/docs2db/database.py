@@ -20,7 +20,12 @@ from docs2db.config import settings
 from docs2db.const import DATABASE_SCHEMA_VERSION
 from docs2db.embeddings import EMBEDDING_CONFIGS, create_embedding_filename
 from docs2db.exceptions import ConfigurationError, ContentError, DatabaseError
-from docs2db.multiproc import BatchProcessor, setup_worker_logging
+from docs2db.multiproc import (
+    BatchProcessor,
+    batch_generator,
+    setup_worker_logging,
+    worker_count,
+)
 
 logger = structlog.get_logger()
 
@@ -1750,26 +1755,58 @@ async def load_documents(
         row = await result.fetchone()
         model_existed_before = (row[0] if row else 0) > 0
 
-    processor = BatchProcessor(
-        worker_function=load_batch_worker,
-        worker_args=(
-            model,
-            content_dir,
-            host,
-            port,
-            db,
-            user,
-            password,
-            force,
-        ),
-        progress_message=f"Loading files...",
-        batch_size=batch_size,
-        mem_threshold_mb=2000,
-    )
-
-    # Extract just the source files from the list for the batch processor
     source_files_list = [source_file for source_file, _ in file_pairs_list]
-    loaded, errors = processor.process_files(source_files_list)
+    max_workers = worker_count(len(source_files_list))
+
+    # Python's async/await creates "colored functions" — async functions can
+    # only be called from other async functions, and asyncio.run() can't nest.
+    # See: https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/
+    # Since load_documents() is async, there's always a running event loop,
+    # so load_batch_worker() can't call asyncio.run() in single-threaded mode.
+    # We call _load_batch_async() directly to avoid the color-crossing.
+    # Multiprocessing is fine — forked workers have no event loop to conflict with.
+    if max_workers == 1:
+        loaded = 0
+        errors = 0
+        content_dir_path = Path(content_dir)
+        for batch in batch_generator(source_files_list, batch_size):
+            file_paths = [Path(f) for f in batch]
+            try:
+                batch_processed, batch_errors = await _load_batch_async(
+                    file_paths,
+                    model,
+                    content_dir_path,
+                    host,
+                    port,
+                    db,
+                    user,
+                    password,
+                    force,
+                )
+                loaded += batch_processed
+                errors += batch_errors
+            except Exception as e:
+                logger.error("Batch failed: %s", e)
+                errors += len(batch)
+    else:
+        processor = BatchProcessor(
+            worker_function=load_batch_worker,
+            worker_args=(
+                model,
+                content_dir,
+                host,
+                port,
+                db,
+                user,
+                password,
+                force,
+            ),
+            progress_message="Loading files...",
+            batch_size=batch_size,
+            mem_threshold_mb=2000,
+            max_workers=max_workers,
+        )
+        loaded, errors = processor.process_files(source_files_list)
     end = time.time()
 
     # Record this load operation in schema_changes
