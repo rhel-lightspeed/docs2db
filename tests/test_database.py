@@ -3,11 +3,12 @@
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import psycopg
 import pytest
 
-from docs2db.database import check_database_status, load_documents
+from docs2db.database import DatabaseManager, check_database_status, load_documents
 from tests.test_config import get_test_db_config, should_skip_postgres_tests
 
 
@@ -272,3 +273,275 @@ class TestDatabaseSQL:
         )
 
         assert result is None
+
+    def test_savepoint_isolation_partial_batch_failure(self):
+        """Test that savepoint isolation allows partial batch success.
+
+        When one document in a batch fails during the DB insertion phase,
+        the SAVEPOINT/ROLLBACK TO SAVEPOINT mechanism catches the error for
+        that document only, allowing the other documents in the batch to
+        succeed. This verifies the per-document savepoint/rollback logic
+        in load_document_batch.
+        """
+        if should_skip_postgres_tests():
+            pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
+
+        fixtures_dir = Path(__file__).parent / "fixtures" / "content" / "documents"
+        if not fixtures_dir.exists():
+            pytest.skip("Test fixtures not available")
+
+        config = get_test_db_config()
+        db_manager = DatabaseManager(
+            host=config["host"],
+            port=int(config["port"]),
+            database=config["database"],
+            user=config["user"],
+            password=config["password"],
+        )
+        db_manager.initialize_schema()
+
+        good_path = "good_doc/source.json"
+        bad_path = "bad_doc/source.json"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_dir = Path(temp_dir)
+
+            # --- Good document: will succeed ---
+            good_dir = content_dir / "good_doc"
+            good_dir.mkdir()
+            good_source = good_dir / "source.json"
+            good_source.write_text(
+                json.dumps({"title": "Good Doc", "content": "Content."})
+            )
+            good_chunks_file = good_dir / "chunks.json"
+            good_chunks_file.write_text(
+                json.dumps({
+                    "chunks": [
+                        {
+                            "text": "Good document text for savepoint test.",
+                            "contextual_text": "Good document text for savepoint test.",
+                            "metadata": {"chunk_index": 0},
+                        }
+                    ],
+                    "model": "ibm-granite/granite-embedding-30m-english",
+                })
+            )
+            good_embedding_data = {"embeddings": [[0.1] * 384]}
+            good_emb_file = good_dir / "gran.json"
+            good_emb_file.write_text(json.dumps(good_embedding_data))
+
+            # --- Bad document: will fail during INSERT ---
+            bad_dir = content_dir / "bad_doc"
+            bad_dir.mkdir()
+            bad_source = bad_dir / "source.json"
+            bad_source.write_text(
+                json.dumps({"title": "Bad Doc", "content": "Content."})
+            )
+            bad_chunks_file = bad_dir / "chunks.json"
+            bad_chunks_file.write_text(
+                json.dumps({
+                    "chunks": [
+                        {
+                            "text": "Bad document text for savepoint test.",
+                            "contextual_text": "Bad document text for savepoint test.",
+                            "metadata": {"chunk_index": 0},
+                        }
+                    ],
+                    "model": "ibm-granite/granite-embedding-30m-english",
+                })
+            )
+            bad_embedding_data = {"embeddings": [[0.1] * 384]}
+            bad_emb_file = bad_dir / "gran.json"
+            bad_emb_file.write_text(json.dumps(bad_embedding_data))
+
+            model = "ibm-granite/granite-embedding-30m-english"
+            files_data = [
+                (
+                    good_source,
+                    good_chunks_file,
+                    model,
+                    good_embedding_data,
+                    good_emb_file,
+                ),
+                (
+                    bad_source,
+                    bad_chunks_file,
+                    model,
+                    bad_embedding_data,
+                    bad_emb_file,
+                ),
+            ]
+
+            # Connection wrapper that simulates a DB failure for the bad_doc
+            # INSERT while letting all other operations (including SAVEPOINT
+            # commands, which use Composed SQL objects) pass through normally.
+            original_get_conn = db_manager.get_direct_connection
+            call_count = [0]
+
+            class _FailOnBadDoc:
+                """Wraps a real DB connection, raising on INSERT for 'bad_doc'."""
+
+                def __init__(self, conn):
+                    self._conn = conn
+
+                def execute(self, sql, params=None, *args, **kwargs):
+                    if (
+                        isinstance(sql, str)
+                        and "INSERT INTO documents" in sql
+                        and params
+                        and "bad_doc" in str(params[0])
+                    ):
+                        raise RuntimeError(
+                            "Simulated DB failure for savepoint isolation test"
+                        )
+                    return self._conn.execute(sql, params, *args, **kwargs)
+
+                def commit(self):
+                    return self._conn.commit()
+
+                def rollback(self):
+                    return self._conn.rollback()
+
+                def __enter__(self):
+                    self._conn.__enter__()
+                    return self
+
+                def __exit__(self, *args):
+                    return self._conn.__exit__(*args)
+
+            def mock_get_conn():
+                call_count[0] += 1
+                conn = original_get_conn()
+                # First call is for insert_model; wrap only the bulk-ops call
+                return _FailOnBadDoc(conn) if call_count[0] > 1 else conn
+
+            try:
+                with patch.object(
+                    db_manager,
+                    "get_direct_connection",
+                    side_effect=mock_get_conn,
+                ):
+                    processed, errors = db_manager.load_document_batch(
+                        files_data, content_dir, force=True
+                    )
+
+                # Partial success: good_doc processed, bad_doc errored
+                assert processed > 0, (
+                    f"Expected at least one document processed, got {processed}"
+                )
+                assert errors > 0, f"Expected at least one error, got {errors}"
+
+                # The successful document must be in the database
+                with create_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT path FROM documents WHERE path = %s",
+                            (good_path,),
+                        )
+                        assert cur.fetchone() is not None, (
+                            f"Good document '{good_path}' not found in documents table"
+                        )
+            finally:
+                # Clean up test documents
+                with create_connection() as conn:
+                    conn.execute(
+                        "DELETE FROM documents WHERE path IN (%s, %s)",
+                        (good_path, bad_path),
+                    )
+                    conn.commit()
+
+    def test_skip_check_uses_relative_path(self):
+        """Test that the up-to-date check matches DB paths correctly.
+
+        The skip-check query (force=False path) must compare against the
+        document's relative path — the same format stored in the documents
+        table.  Before the fix, it compared absolute paths, so the query
+        never matched and every document was needlessly re-processed.
+
+        Verifies the fix by loading a document once (force=True), then
+        re-loading with force=False and asserting it is skipped.
+        """
+        if should_skip_postgres_tests():
+            pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
+
+        config = get_test_db_config()
+        db_manager = DatabaseManager(
+            host=config["host"],
+            port=int(config["port"]),
+            database=config["database"],
+            user=config["user"],
+            password=config["password"],
+        )
+        db_manager.initialize_schema()
+
+        doc_rel_path = "skipcheck_doc/source.json"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_dir = Path(temp_dir)
+
+            # Create a single document with chunk + embedding
+            doc_dir = content_dir / "skipcheck_doc"
+            doc_dir.mkdir()
+            source = doc_dir / "source.json"
+            source.write_text(
+                json.dumps({"title": "Skip Check Doc", "content": "Content."})
+            )
+            chunks_file = doc_dir / "chunks.json"
+            chunks_file.write_text(
+                json.dumps({
+                    "chunks": [
+                        {
+                            "text": "Text for skip-check path test.",
+                            "contextual_text": "Text for skip-check path test.",
+                            "metadata": {"chunk_index": 0},
+                        }
+                    ],
+                    "model": "ibm-granite/granite-embedding-30m-english",
+                })
+            )
+            embedding_data = {"embeddings": [[0.1] * 384]}
+            emb_file = doc_dir / "gran.json"
+            emb_file.write_text(json.dumps(embedding_data))
+
+            model = "ibm-granite/granite-embedding-30m-english"
+            files_data = [
+                (source, chunks_file, model, embedding_data, emb_file),
+            ]
+
+            try:
+                # --- First load: force=True inserts the document ---
+                processed_1, errors_1 = db_manager.load_document_batch(
+                    files_data, content_dir, force=True
+                )
+                assert errors_1 == 0, f"First load had unexpected errors: {errors_1}"
+                assert processed_1 == 1, (
+                    f"Expected 1 document processed on first load, got {processed_1}"
+                )
+
+                # Verify the document is stored with a relative path
+                with create_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT path FROM documents WHERE path = %s",
+                            (doc_rel_path,),
+                        )
+                        assert cur.fetchone() is not None, (
+                            f"Document not found at relative path '{doc_rel_path}'"
+                        )
+
+                # --- Second load: force=False should skip (already up to date) ---
+                processed_2, errors_2 = db_manager.load_document_batch(
+                    files_data, content_dir, force=False
+                )
+                assert errors_2 == 0, f"Second load had unexpected errors: {errors_2}"
+                assert processed_2 == 0, (
+                    f"Expected 0 documents processed (skip), got {processed_2}. "
+                    "The up-to-date check likely failed to match the relative path."
+                )
+            finally:
+                with create_connection() as conn:
+                    conn.execute(
+                        "DELETE FROM documents WHERE path = %s",
+                        (doc_rel_path,),
+                    )
+                    conn.commit()

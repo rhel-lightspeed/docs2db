@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CONTRIBUTING.md development guide
 - SECURITY.md vulnerability disclosure policy
 
+### Fixed
+- Fixed document path mismatch in up-to-date check — skip-check now uses relative paths matching DB storage, preventing unnecessary re-processing
+- Added per-document savepoint isolation in batch loading — one failed document no longer aborts the entire batch transaction
+
 ### Changed
 - Converted database layer from async psycopg (`AsyncConnection`) to sync psycopg (`Connection`), eliminating nested event loop issues with single-threaded batch processing
 - Removed `pytest-asyncio` and `greenlet` dev dependencies

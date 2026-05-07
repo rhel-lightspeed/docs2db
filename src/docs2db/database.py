@@ -821,15 +821,18 @@ class DatabaseManager:
             try:
                 # Bulk insert/update documents
                 doc_path_to_id = {}
-                for (
+                for idx, (
                     source_file,
                     doc_data,
                     chunks,
                     embedding_vectors,
                     model_id_from_data,
                     embedding_file,
-                ) in documents_data:
+                ) in enumerate(documents_data):
                     try:
+                        conn.execute(
+                            SQL("SAVEPOINT {}").format(Identifier(f"sp_doc_{idx}"))
+                        )
                         # Check if we should skip (not force and current embeddings exist)
                         if not force:
                             # Get existing embeddings creation time
@@ -841,7 +844,10 @@ class DatabaseManager:
                                 JOIN embeddings e ON e.chunk_id = c.id
                                 WHERE d.path = %s AND e.model = %s
                                 """,
-                                (str(source_file), model_id_from_data),
+                                (
+                                    str(source_file.relative_to(content_dir)),
+                                    model_id_from_data,
+                                ),
                             )
                             existing_row = existing_result.fetchone()
 
@@ -907,22 +913,36 @@ class DatabaseManager:
                                 model_id,
                             ))
 
+                        conn.execute(
+                            SQL("RELEASE SAVEPOINT {}").format(
+                                Identifier(f"sp_doc_{idx}")
+                            )
+                        )
                         processed += 1
 
                     except Exception as e:
+                        conn.execute(
+                            SQL("ROLLBACK TO SAVEPOINT {}").format(
+                                Identifier(f"sp_doc_{idx}")
+                            )
+                        )
                         logger.error(
                             f"Failed to process document {source_file.name}: {e}"
                         )
                         errors += 1
+                        continue
 
                 # Bulk insert chunks and collect chunk IDs
-                for (
+                for idx, (
                     source_file,
                     chunk_data,
                     embedding_vector,
                     _,
-                ) in chunks_data:
+                ) in enumerate(chunks_data):
                     try:
+                        conn.execute(
+                            SQL("SAVEPOINT {}").format(Identifier(f"sp_chunk_{idx}"))
+                        )
                         chunk_result = conn.execute(
                             """
                             INSERT INTO chunks (document_id, chunk_index, text, contextual_text, metadata, text_search_vector)
@@ -952,14 +972,27 @@ class DatabaseManager:
                             embedding_vector,
                         )
                         embeddings_data.append(embedding_data_tuple)
+                        conn.execute(
+                            SQL("RELEASE SAVEPOINT {}").format(
+                                Identifier(f"sp_chunk_{idx}")
+                            )
+                        )
 
                     except Exception as e:
+                        conn.execute(
+                            SQL("ROLLBACK TO SAVEPOINT {}").format(
+                                Identifier(f"sp_chunk_{idx}")
+                            )
+                        )
                         logger.error(f"Failed to insert chunk for {source_file}: {e}")
                         errors += 1
 
                 # Bulk insert embeddings
-                for embedding_tuple in embeddings_data:
+                for idx, embedding_tuple in enumerate(embeddings_data):
                     try:
+                        conn.execute(
+                            SQL("SAVEPOINT {}").format(Identifier(f"sp_emb_{idx}"))
+                        )
                         conn.execute(
                             """
                             INSERT INTO embeddings (chunk_id, model, embedding)
@@ -970,7 +1003,17 @@ class DatabaseManager:
                             """,
                             embedding_tuple,
                         )
+                        conn.execute(
+                            SQL("RELEASE SAVEPOINT {}").format(
+                                Identifier(f"sp_emb_{idx}")
+                            )
+                        )
                     except Exception as e:
+                        conn.execute(
+                            SQL("ROLLBACK TO SAVEPOINT {}").format(
+                                Identifier(f"sp_emb_{idx}")
+                            )
+                        )
                         logger.error(f"Failed to insert embedding: {e}")
                         errors += 1
 
