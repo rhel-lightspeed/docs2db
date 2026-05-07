@@ -109,49 +109,78 @@ class TestDatabaseSQL:
     def test_load_documents_force_parameter(self):
         """Test the force parameter in load_documents."""
         if should_skip_postgres_tests():
-            pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
+            pytest.skip("PostgreSQL tests are disabled")
 
         config = get_test_db_config()
+        content_dir = str(Path(__file__).parent / "fixtures" / "content" / "documents")
+        if not Path(content_dir).exists():
+            pytest.skip("Test fixtures not available")
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create a simple JSON file
-            test_file = Path(temp_dir) / "test.json"
-            test_data = {
-                "name": "test_doc",
-                "origin": {"filename": "test.json"},
-                "texts": [{"text": "This is a test document."}],
-            }
-            test_file.write_text(json.dumps(test_data, indent=2))
+        try:
+            with create_connection() as conn:
+                doc_count_before = conn.execute(
+                    "SELECT COUNT(*) FROM documents"
+                ).fetchone()[0]
+        except psycopg.errors.UndefinedTable:
+            doc_count_before = 0
 
-            # Test with force=False
-            success1 = load_documents(
-                content_dir=temp_dir,
-                model="ibm-granite/granite-embedding-30m-english",
-                pattern="**",
-                host=config["host"],
-                port=int(config["port"]),
-                db=config["database"],
-                user=config["user"],
-                password=config["password"],
-                force=False,
-            )
+        # First load — should process the document
+        success1 = load_documents(
+            content_dir=content_dir,
+            model="ibm-granite/granite-embedding-30m-english",
+            pattern="**",
+            host=config["host"],
+            port=int(config["port"]),
+            db=config["database"],
+            user=config["user"],
+            password=config["password"],
+            force=False,
+        )
+        assert success1 is True
 
-            # Test with force=True
-            success2 = load_documents(
-                content_dir=temp_dir,
-                model="ibm-granite/granite-embedding-30m-english",
-                pattern="**",
-                host=config["host"],
-                port=int(config["port"]),
-                db=config["database"],
-                user=config["user"],
-                password=config["password"],
-                force=True,
-            )
+        with create_connection() as conn:
+            doc_count_after = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[
+                0
+            ]
+        assert doc_count_after > doc_count_before, (
+            "First load should insert at least one document"
+        )
 
-            # Both should return boolean values
-            assert isinstance(success1, bool)
-            assert isinstance(success2, bool)
+        # Second load with force=False — should skip (documents already loaded)
+        success2 = load_documents(
+            content_dir=content_dir,
+            model="ibm-granite/granite-embedding-30m-english",
+            pattern="**",
+            host=config["host"],
+            port=int(config["port"]),
+            db=config["database"],
+            user=config["user"],
+            password=config["password"],
+            force=False,
+        )
+        assert success2 is True
+
+        with create_connection() as conn:
+            doc_count_after_skip = conn.execute(
+                "SELECT COUNT(*) FROM documents"
+            ).fetchone()[0]
+        assert doc_count_after_skip == doc_count_after, (
+            "force=False should not insert additional documents"
+        )
+
+        # Third load with force=True — should re-process (forced reload)
+        success3 = load_documents(
+            content_dir=content_dir,
+            model="ibm-granite/granite-embedding-30m-english",
+            pattern="**",
+            host=config["host"],
+            port=int(config["port"]),
+            db=config["database"],
+            user=config["user"],
+            password=config["password"],
+            force=True,
+        )
+        assert success3 is True
 
     def test_database_tables_after_load(self):
         """Test that expected tables exist after load attempt."""
@@ -207,24 +236,19 @@ class TestDatabaseSQL:
         config = get_test_db_config()
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Test with valid parameters
-            try:
-                success = load_documents(
-                    content_dir=temp_dir,
-                    model="ibm-granite/granite-embedding-30m-english",
-                    pattern="**",
-                    host=config["host"],
-                    port=int(config["port"]),
-                    db=config["database"],
-                    user=config["user"],
-                    password=config["password"],
-                    force=False,
-                    batch_size=50,  # Test optional parameter
-                )
-                assert isinstance(success, bool)
-            except Exception:
-                # Schema issues are acceptable for this interface test
-                pass
+            result = load_documents(
+                content_dir=temp_dir,
+                model="ibm-granite/granite-embedding-30m-english",
+                pattern="**",
+                host=config["host"],
+                port=int(config["port"]),
+                db=config["database"],
+                user=config["user"],
+                password=config["password"],
+                force=False,
+                batch_size=50,
+            )
+            assert result is True
 
     def test_connection_error_handling(self):
         """Test connection error handling."""
@@ -264,15 +288,14 @@ class TestDatabaseSQL:
                 password=config["password"],
             )
 
-        result = check_database_status(
+        # check_database_status raises DatabaseError on failure; completing without exception IS the assertion
+        check_database_status(
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],
             user=config["user"],
             password=config["password"],
         )
-
-        assert result is None
 
     def test_savepoint_isolation_partial_batch_failure(self):
         """Test that savepoint isolation allows partial batch success.
