@@ -112,6 +112,8 @@ class TestDatabaseSQL:
 
         config = get_test_db_config()
         content_dir = str(Path(__file__).parent / "fixtures" / "content" / "documents")
+        if not Path(content_dir).exists():
+            pytest.skip("Test fixtures not available")
 
         # First load — should process the document
         success1 = load_documents(
@@ -128,11 +130,8 @@ class TestDatabaseSQL:
         assert success1 is True
 
         # Verify document was actually loaded (not just "no files to process")
-        conn = create_connection()
-        with conn:
-            result = conn.execute("SELECT COUNT(*) FROM documents")
-            doc_count = result.fetchone()[0]
-        conn.close()
+        with create_connection() as conn:
+            doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         assert doc_count > 0, "First load should insert at least one document"
 
         # Second load with force=False — should skip (documents already loaded)
