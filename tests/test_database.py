@@ -160,6 +160,14 @@ class TestDatabaseSQL:
         )
         assert success2 is True
 
+        with create_connection() as conn:
+            doc_count_after_skip = conn.execute(
+                "SELECT COUNT(*) FROM documents"
+            ).fetchone()[0]
+        assert doc_count_after_skip == doc_count_after, (
+            "force=False should not insert additional documents"
+        )
+
         # Third load with force=True — should re-process (forced reload)
         success3 = load_documents(
             content_dir=content_dir,
