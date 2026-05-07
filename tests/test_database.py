@@ -115,6 +115,11 @@ class TestDatabaseSQL:
         if not Path(content_dir).exists():
             pytest.skip("Test fixtures not available")
 
+        with create_connection() as conn:
+            doc_count_before = conn.execute(
+                "SELECT COUNT(*) FROM documents"
+            ).fetchone()[0]
+
         # First load — should process the document
         success1 = load_documents(
             content_dir=content_dir,
@@ -129,10 +134,13 @@ class TestDatabaseSQL:
         )
         assert success1 is True
 
-        # Verify document was actually loaded (not just "no files to process")
         with create_connection() as conn:
-            doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-        assert doc_count > 0, "First load should insert at least one document"
+            doc_count_after = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[
+                0
+            ]
+        assert doc_count_after > doc_count_before, (
+            "First load should insert at least one document"
+        )
 
         # Second load with force=False — should skip (documents already loaded)
         success2 = load_documents(
