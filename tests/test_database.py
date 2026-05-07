@@ -449,3 +449,99 @@ class TestDatabaseSQL:
                         (good_path, bad_path),
                     )
                     conn.commit()
+
+    def test_skip_check_uses_relative_path(self):
+        """Test that the up-to-date check matches DB paths correctly.
+
+        The skip-check query (force=False path) must compare against the
+        document's relative path — the same format stored in the documents
+        table.  Before the fix, it compared absolute paths, so the query
+        never matched and every document was needlessly re-processed.
+
+        Verifies the fix by loading a document once (force=True), then
+        re-loading with force=False and asserting it is skipped.
+        """
+        if should_skip_postgres_tests():
+            pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
+
+        config = get_test_db_config()
+        db_manager = DatabaseManager(
+            host=config["host"],
+            port=int(config["port"]),
+            database=config["database"],
+            user=config["user"],
+            password=config["password"],
+        )
+        db_manager.initialize_schema()
+
+        doc_rel_path = "skipcheck_doc/source.json"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_dir = Path(temp_dir)
+
+            # Create a single document with chunk + embedding
+            doc_dir = content_dir / "skipcheck_doc"
+            doc_dir.mkdir()
+            source = doc_dir / "source.json"
+            source.write_text(
+                json.dumps({"title": "Skip Check Doc", "content": "Content."})
+            )
+            chunks_file = doc_dir / "chunks.json"
+            chunks_file.write_text(
+                json.dumps({
+                    "chunks": [
+                        {
+                            "text": "Text for skip-check path test.",
+                            "contextual_text": "Text for skip-check path test.",
+                            "metadata": {"chunk_index": 0},
+                        }
+                    ],
+                    "model": "ibm-granite/granite-embedding-30m-english",
+                })
+            )
+            embedding_data = {"embeddings": [[0.1] * 384]}
+            emb_file = doc_dir / "gran.json"
+            emb_file.write_text(json.dumps(embedding_data))
+
+            model = "ibm-granite/granite-embedding-30m-english"
+            files_data = [
+                (source, chunks_file, model, embedding_data, emb_file),
+            ]
+
+            try:
+                # --- First load: force=True inserts the document ---
+                processed_1, errors_1 = db_manager.load_document_batch(
+                    files_data, content_dir, force=True
+                )
+                assert errors_1 == 0, f"First load had unexpected errors: {errors_1}"
+                assert processed_1 == 1, (
+                    f"Expected 1 document processed on first load, got {processed_1}"
+                )
+
+                # Verify the document is stored with a relative path
+                with create_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT path FROM documents WHERE path = %s",
+                            (doc_rel_path,),
+                        )
+                        assert cur.fetchone() is not None, (
+                            f"Document not found at relative path '{doc_rel_path}'"
+                        )
+
+                # --- Second load: force=False should skip (already up to date) ---
+                processed_2, errors_2 = db_manager.load_document_batch(
+                    files_data, content_dir, force=False
+                )
+                assert errors_2 == 0, f"Second load had unexpected errors: {errors_2}"
+                assert processed_2 == 0, (
+                    f"Expected 0 documents processed (skip), got {processed_2}. "
+                    "The up-to-date check likely failed to match the relative path."
+                )
+            finally:
+                with create_connection() as conn:
+                    conn.execute(
+                        "DELETE FROM documents WHERE path = %s",
+                        (doc_rel_path,),
+                    )
+                    conn.commit()
