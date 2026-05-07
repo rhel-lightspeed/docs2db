@@ -4,14 +4,14 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
-        exclude: ^(content|external_sources)/
+        exclude: &exclude ^(content|external_sources|tests/fixtures)/
 
       - id: ruff-format
         args: [--diff]
-        exclude: ^(content|external_sources)/
+        exclude: *exclude
 
       - id: ruff-format
-        exclude: ^(content|external_sources)/
+        exclude: *exclude
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.23.1
@@ -24,10 +24,10 @@ repos:
     hooks:
       - id: check-toml
       - id: end-of-file-fixer
-        exclude: ^(content|external_sources)/
+        exclude: *exclude
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
-        exclude: ^(content|external_sources)/
+        exclude: *exclude
 
   - repo: local
     hooks:
