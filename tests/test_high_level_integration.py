@@ -11,11 +11,9 @@ This test covers the entire workflow:
 
 import json
 from pathlib import Path
-from typing import Dict, Set
 
 import psycopg
 import pytest
-from psycopg.sql import SQL, Identifier
 
 from docs2db.chunks import generate_chunks
 from docs2db.database import DatabaseManager, check_database_status, load_documents
@@ -33,7 +31,7 @@ def count_records(conn, table_name: str) -> int:
         return result[0] if result else 0
 
 
-def get_document_paths(conn) -> Set[str]:
+def get_document_paths(conn) -> set[str]:
     """Get set of document paths in database."""
     with conn.cursor() as cur:
         cur.execute("SELECT path FROM documents")
@@ -50,26 +48,20 @@ class TestHighLevelIntegrationSQL:
         # Just return the temp directory - the test will handle ingestion
         return tmp_path
 
-    def get_file_set(self, directory: Path, pattern: str = "*") -> Set[str]:
+    def get_file_set(self, directory: Path, pattern: str = "*") -> set[str]:
         """Get a set of filenames matching the pattern in the directory."""
         if "**" in pattern:
             # For recursive patterns, return relative paths from the directory
-            return {
-                str(f.relative_to(directory))
-                for f in directory.glob(pattern)
-                if f.is_file()
-            }
+            return {str(f.relative_to(directory)) for f in directory.glob(pattern) if f.is_file()}
         else:
             # For non-recursive patterns, return just filenames
             return {f.name for f in directory.glob(pattern) if f.is_file()}
 
-    def get_file_mtimes(self, directory: Path, pattern: str = "*") -> Dict[str, float]:
+    def get_file_mtimes(self, directory: Path, pattern: str = "*") -> dict[str, float]:
         """Get modification times for files matching the pattern."""
-        return {
-            f.name: f.stat().st_mtime for f in directory.glob(pattern) if f.is_file()
-        }
+        return {f.name: f.stat().st_mtime for f in directory.glob(pattern) if f.is_file()}
 
-    def get_database_records(self, conn) -> Dict[str, int]:
+    def get_database_records(self, conn) -> dict[str, int]:
         """Get counts of database records."""
         return {
             "documents": count_records(conn, "documents"),
@@ -84,7 +76,9 @@ class TestHighLevelIntegrationSQL:
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
 
         config = get_test_db_config()
-        conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+        conn_string = (
+            f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+        )
 
         db_manager = DatabaseManager(
             host=config["host"],
@@ -125,9 +119,7 @@ class TestHighLevelIntegrationSQL:
             assert success, "Ingestion should succeed"
 
             # Verify content directory was created with ingested files
-            assert content_dir.exists(), (
-                "Content directory should be created by ingestion"
-            )
+            assert content_dir.exists(), "Content directory should be created by ingestion"
 
             # Get the ingested source.json files (new subdirectory structure)
             initial_files = self.get_file_set(content_dir, "**/source.json")
@@ -142,35 +134,25 @@ class TestHighLevelIntegrationSQL:
         # Store the initial file set for later comparisons
         expected_json_files = initial_files.copy()
 
-        success = generate_chunks(
-            str(content_dir), "**", force=False, skip_context=True
-        )
+        success = generate_chunks(str(content_dir), "**", force=False, skip_context=True)
         assert success, "Initial chunking should succeed"
 
         # Verify chunk files were created correctly (new subdirectory structure)
         chunk_files = self.get_file_set(content_dir, "**/chunks.json")
         # For each source.json, we expect chunks.json in the same directory
-        expected_chunk_files = {
-            f.replace("source.json", "chunks.json") for f in expected_json_files
-        }
-        assert chunk_files == expected_chunk_files, (
-            f"Expected {expected_chunk_files}, got {chunk_files}"
-        )
+        expected_chunk_files = {f.replace("source.json", "chunks.json") for f in expected_json_files}
+        assert chunk_files == expected_chunk_files, f"Expected {expected_chunk_files}, got {chunk_files}"
 
         # Verify no unexpected files were created
         all_files_after_chunking = self.get_file_set(content_dir, "**/*")
         # Expected files = Docling JSONs + chunks + metadata files + README created during ingestion
         # structure: doc_dir/source.json, doc_dir/chunks.json, doc_dir/meta.json
         meta_files = {f.replace("source.json", "meta.json") for f in initial_files}
-        expected_files_after_chunking = (
-            initial_files | expected_chunk_files | meta_files | {"README.md"}
-        )
+        expected_files_after_chunking = initial_files | expected_chunk_files | meta_files | {"README.md"}
         unexpected = all_files_after_chunking - expected_files_after_chunking
         missing = expected_files_after_chunking - all_files_after_chunking
         assert all_files_after_chunking == expected_files_after_chunking, (
-            f"Unexpected files created during chunking.\n"
-            f"Unexpected files: {unexpected}\n"
-            f"Missing files: {missing}"
+            f"Unexpected files created during chunking.\nUnexpected files: {unexpected}\nMissing files: {missing}"
         )
 
         # Verify chunks content is correct
@@ -188,9 +170,7 @@ class TestHighLevelIntegrationSQL:
                 # Verify each chunk has required fields
                 for chunk in chunk_data["chunks"]:
                     assert "text" in chunk, f"Missing text in chunk from {chunk_file}"
-                    assert "metadata" in chunk, (
-                        f"Missing metadata in chunk from {chunk_file}"
-                    )
+                    assert "metadata" in chunk, f"Missing metadata in chunk from {chunk_file}"
 
         # Test initial embedding
         success = generate_embeddings(
@@ -214,18 +194,12 @@ class TestHighLevelIntegrationSQL:
             if len(chunk_data["chunks"]) > 0:
                 expected_embed_files.add(chunk_file.replace("chunks.json", "gran.json"))
 
-        assert embed_files == expected_embed_files, (
-            f"Expected {expected_embed_files}, got {embed_files}"
-        )
+        assert embed_files == expected_embed_files, f"Expected {expected_embed_files}, got {embed_files}"
 
         # Verify no unexpected files were created
         all_files_after_embedding = self.get_file_set(content_dir, "**/*")
-        expected_files_after_embedding = (
-            expected_files_after_chunking | expected_embed_files
-        )
-        assert all_files_after_embedding == expected_files_after_embedding, (
-            "Unexpected files created during embedding"
-        )
+        expected_files_after_embedding = expected_files_after_chunking | expected_embed_files
+        assert all_files_after_embedding == expected_files_after_embedding, "Unexpected files created during embedding"
 
         # Verify embeddings content is correct
         for embed_file in embed_files:
@@ -235,15 +209,11 @@ class TestHighLevelIntegrationSQL:
 
             assert "embeddings" in embed_data, f"Missing embeddings in {embed_file}"
             assert "metadata" in embed_data, f"Missing metadata in {embed_file}"
-            assert len(embed_data["embeddings"]) > 0, (
-                f"No embeddings found in {embed_file}"
-            )
+            assert len(embed_data["embeddings"]) > 0, f"No embeddings found in {embed_file}"
 
             # Verify embedding dimensions match granite model (384)
             for embedding in embed_data["embeddings"]:
-                assert len(embedding) == 384, (
-                    f"Wrong embedding dimensions in {embed_file}"
-                )
+                assert len(embedding) == 384, f"Wrong embedding dimensions in {embed_file}"
 
         success = load_documents(
             content_dir=str(content_dir),
@@ -268,12 +238,8 @@ class TestHighLevelIntegrationSQL:
             assert initial_records["documents"] == expected_doc_count, (
                 f"Expected {expected_doc_count} documents, got {initial_records['documents']}"
             )
-            assert initial_records["chunks"] > 0, (
-                f"Expected chunks > 0, got {initial_records['chunks']}"
-            )
-            assert initial_records["embeddings"] > 0, (
-                f"Expected embeddings > 0, got {initial_records['embeddings']}"
-            )
+            assert initial_records["chunks"] > 0, f"Expected chunks > 0, got {initial_records['chunks']}"
+            assert initial_records["embeddings"] > 0, f"Expected embeddings > 0, got {initial_records['embeddings']}"
             assert initial_records["chunks"] == initial_records["embeddings"], (
                 "Chunks and embeddings count should match"
             )
@@ -283,13 +249,8 @@ class TestHighLevelIntegrationSQL:
             # get_document_paths returns just filenames, so extract filenames from expected embed files
             # (only files with embeddings get loaded into the database)
             # gran.json and source.json are in same directory
-            expected_doc_names = {
-                Path(f.replace("gran.json", "source.json")).name
-                for f in expected_embed_files
-            }
-            assert doc_paths == expected_doc_names, (
-                f"Expected {expected_doc_names}, got {doc_paths}"
-            )
+            expected_doc_names = {Path(f.replace("gran.json", "source.json")).name for f in expected_embed_files}
+            assert doc_paths == expected_doc_names, f"Expected {expected_doc_names}, got {doc_paths}"
 
         # === PHASE 2: Idempotency Tests ===
 
@@ -298,16 +259,12 @@ class TestHighLevelIntegrationSQL:
         embed_mtimes_before = self.get_file_mtimes(content_dir, "gran.json")
 
         # Test chunking idempotency
-        success = generate_chunks(
-            str(content_dir), "**", force=False, skip_context=True
-        )
+        success = generate_chunks(str(content_dir), "**", force=False, skip_context=True)
         assert success, "Chunking re-run should succeed"
 
         # Verify no chunk files changed
         chunk_mtimes_after = self.get_file_mtimes(content_dir, "chunks.json")
-        assert chunk_mtimes_before == chunk_mtimes_after, (
-            "Chunk files should not change on re-run"
-        )
+        assert chunk_mtimes_before == chunk_mtimes_after, "Chunk files should not change on re-run"
 
         # Test embedding idempotency
         success = generate_embeddings(
@@ -320,9 +277,7 @@ class TestHighLevelIntegrationSQL:
 
         # Verify no embedding files changed
         embed_mtimes_after = self.get_file_mtimes(content_dir, "gran.json")
-        assert embed_mtimes_before == embed_mtimes_after, (
-            "Embedding files should not change on re-run"
-        )
+        assert embed_mtimes_before == embed_mtimes_after, "Embedding files should not change on re-run"
 
         # Test database load idempotency
         success = load_documents(
@@ -341,9 +296,7 @@ class TestHighLevelIntegrationSQL:
         # Verify no records were updated (same counts)
         with psycopg.Connection.connect(conn_string) as conn:
             records_after_rerun = self.get_database_records(conn)
-            assert initial_records == records_after_rerun, (
-                "Database records should not change on re-run"
-            )
+            assert initial_records == records_after_rerun, "Database records should not change on re-run"
 
         # === PHASE 3: Force Re-processing Test ===
 
@@ -394,18 +347,13 @@ class TestHighLevelIntegrationSQL:
                 f"Should have {expected_doc_count} documents in database"
             )
             assert final_records["embeddings"] > 0, "Should have embeddings in database"
-            assert final_records["chunks"] == final_records["embeddings"], (
-                "Chunks and embeddings should match"
-            )
+            assert final_records["chunks"] == final_records["embeddings"], "Chunks and embeddings should match"
 
             # Verify all documents with embeddings are in database
             final_doc_paths = get_document_paths(conn)
             # Only documents with embeddings get loaded into the database
             # So we should expect the same documents that have gran.json files
-            expected_final_doc_names = {
-                Path(f.replace("gran.json", "source.json")).name
-                for f in expected_embed_files
-            }
+            expected_final_doc_names = {Path(f.replace("gran.json", "source.json")).name for f in expected_embed_files}
             assert final_doc_paths == expected_final_doc_names, (
                 f"Expected {expected_final_doc_names}, got {final_doc_paths}"
             )

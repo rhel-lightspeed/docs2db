@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Text Processing :: General",
 ]
 dependencies = [
-    "cachetools>=6.2.6",
+    "cachetools>=7.1.0",
     "docling>=2.92.0",
     "httpx>=0.28.1",
     "pgvector>=0.4.2",
@@ -37,7 +37,7 @@ dependencies = [
     "psycopg-pool>=3.3.1",
     "pydantic-settings>=2.14.0",
     "pyyaml>=6.0.3",
-    "rich>=14.3.4",
+    "rich>=15.0.0",
     "structlog>=25.5.0",
     "torch>=2.7.1",
     "torchvision>=0.23.0",
@@ -79,12 +79,12 @@ dev = [
     "ipython>=9.13.0",
     "pre-commit>=4.6.0",
     "pyright>=1.1.409",
-    "pytest>=8.4.2",
-    "pytest-cov>=6.3.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
     "pytest-httpx>=0.36.2",
     "pytest-randomly>=4.1.0",
     "pytest-sugar>=1.1.1",
-    "python-gitlab>=6.5.0",
+    "python-gitlab>=8.3.0",
     "ruff>=0.15.12",
     "tox>=4.53.1",
     "types-cachetools>=6.2.0.20260408",
@@ -115,10 +115,23 @@ venvPath = "."
 venv = ".venv"
 
 [tool.ruff]
-fix = true
+line-length = 120
 
 [tool.ruff.lint]
-select = ["I"]  # Enable import sorting rules
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "UP",     # pyupgrade
+    "S",      # bandit (security)
+    "B",      # flake8-bugbear
+    "A",      # flake8-builtins
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "TID252", # flake8-tidy-imports (relative imports)
+    "RUF100", # flag unnecessary noqa comments
+]
 
-[tool.ruff.format]
-preview = true
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S104", "S106", "S603", "S607", "S608"]
