@@ -25,7 +25,7 @@ def count_records(conn, table_name: str) -> int:
     """Count records in a table."""
     try:
         with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+            cur.execute(f"SELECT COUNT(*) FROM {table_name}")  # noqa: S608
             result = cur.fetchone()
             return result[0] if result else 0
     except Exception:
@@ -254,7 +254,7 @@ class TestDatabaseSQL:
                 port=9999,  # Invalid port
                 db="test_db",
                 user="test_user",
-                password="test_password",
+                password="test_password",  # noqa: S106
             )
         except Exception as e:
             # Should handle connection errors gracefully
