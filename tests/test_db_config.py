@@ -1,9 +1,5 @@
 """Tests for database configuration."""
 
-import os
-from pathlib import Path
-from unittest.mock import mock_open, patch
-
 import pytest
 
 from docs2db.database import get_db_config
@@ -60,9 +56,7 @@ def test_env_vars_override_defaults(clean_env, tmp_path, monkeypatch):
 def test_database_url(clean_env, tmp_path, monkeypatch):
     """Test DATABASE_URL parsing."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(
-        "DATABASE_URL", "postgresql://myuser:mypass@db.example.com:5434/mydb"
-    )
+    monkeypatch.setenv("DATABASE_URL", "postgresql://myuser:mypass@db.example.com:5434/mydb")
 
     config = get_db_config()
 
@@ -238,9 +232,7 @@ services:
     compose_file = tmp_path / "postgres-compose.yml"
     compose_file.write_text(compose_content)
 
-    monkeypatch.setenv(
-        "DATABASE_URL", "postgresql://url_user:url_pass@url.host.com/url_db"
-    )
+    monkeypatch.setenv("DATABASE_URL", "postgresql://url_user:url_pass@url.host.com/url_db")
 
     config = get_db_config()
 

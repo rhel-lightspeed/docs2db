@@ -1,13 +1,15 @@
 """Integration tests for CLI commands."""
 
 import subprocess
-import time
+
 from pathlib import Path
 
 import psycopg
 import pytest
 
-from tests.test_config import get_test_db_config, should_skip_postgres_tests
+from tests.test_config import get_test_db_config
+from tests.test_config import should_skip_postgres_tests
+
 
 # Get project root directory dynamically
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -50,9 +52,7 @@ class TestCLIIntegrationSQL:
         config = get_test_db_config()
 
         try:
-            fixtures_content_dir = (
-                Path(__file__).parent / "fixtures" / "content" / "documents"
-            )
+            fixtures_content_dir = Path(__file__).parent / "fixtures" / "content" / "documents"
 
             cmd = [
                 "uv",
@@ -86,32 +86,22 @@ class TestCLIIntegrationSQL:
             )
 
             if result.returncode != 0:
-                pytest.fail(
-                    f"CLI load command failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
-                )
+                pytest.fail(f"CLI load command failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
 
             # Connect using psycopg directly
             conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
 
             with psycopg.Connection.connect(conn_string) as conn:
                 # Check that tables were created
-                assert check_table_exists(conn, "documents"), (
-                    "documents table should be created"
-                )
-                assert check_table_exists(conn, "chunks"), (
-                    "chunks table should be created"
-                )
-                assert check_table_exists(conn, "embeddings"), (
-                    "embeddings table should be created"
-                )
+                assert check_table_exists(conn, "documents"), "documents table should be created"
+                assert check_table_exists(conn, "chunks"), "chunks table should be created"
+                assert check_table_exists(conn, "embeddings"), "embeddings table should be created"
 
                 # Check that pgvector extension was enabled
                 with conn.cursor() as cur:
                     cur.execute("SELECT '[1,2,3]'::vector")
                     vector_result = cur.fetchone()
-                    assert vector_result is not None, (
-                        "pgvector extension should be enabled"
-                    )
+                    assert vector_result is not None, "pgvector extension should be enabled"
 
                 # Check that our test data was loaded
                 doc_count = count_records(conn, "documents")
@@ -156,18 +146,14 @@ class TestCLIIntegrationSQL:
                 text=True,
                 cwd=str(PROJECT_ROOT),
             )
-            assert result.returncode == 1, (
-                "Should exit with error code when server is down"
-            )
+            assert result.returncode == 1, "Should exit with error code when server is down"
             assert "Database connection failed" in result.stdout, (
                 "Should show database connection failed when server is down"
             )
-            assert "does not exist" not in result.stdout, (
-                "Should not mention database existence when server is down"
+            assert "does not exist" not in result.stdout, "Should not mention database existence when server is down"
+            assert "Traceback" not in result.stdout and "Traceback" not in result.stderr, (
+                "Should not show traceback for expected error"
             )
-            assert (
-                "Traceback" not in result.stdout and "Traceback" not in result.stderr
-            ), "Should not show traceback for expected error"
 
             # Test 2: Server up but database doesn't exist
             result = subprocess.run(
@@ -188,15 +174,11 @@ class TestCLIIntegrationSQL:
                 text=True,
                 cwd=str(PROJECT_ROOT),
             )
-            assert result.returncode == 1, (
-                "Should exit with error when database doesn't exist"
+            assert result.returncode == 1, "Should exit with error when database doesn't exist"
+            assert "does not exist" in result.stdout, "Should show database doesn't exist error"
+            assert "Traceback" not in result.stdout and "Traceback" not in result.stderr, (
+                "Should not show traceback for expected error"
             )
-            assert "does not exist" in result.stdout, (
-                "Should show database doesn't exist error"
-            )
-            assert (
-                "Traceback" not in result.stdout and "Traceback" not in result.stderr
-            ), "Should not show traceback for expected error"
 
             # Test 3: Database exists but is not initialized
             result = subprocess.run(
@@ -218,12 +200,8 @@ class TestCLIIntegrationSQL:
                 cwd=str(PROJECT_ROOT),
             )
             # Should report that database exists but is not initialized
-            assert result.returncode == 1, (
-                "Should exit with error when database is not initialized"
-            )
-            assert "Database connection successful" in result.stdout, (
-                "Should show connection success"
-            )
+            assert result.returncode == 1, "Should exit with error when database is not initialized"
+            assert "Database connection successful" in result.stdout, "Should show connection success"
             # Should indicate that the database is not initialized (no tables exist)
             assert (
                 "not initialized" in result.stdout.lower()
@@ -285,20 +263,14 @@ class TestCLIIntegrationSQL:
                 text=True,
                 cwd=str(PROJECT_ROOT),
             )
-            assert result.returncode == 0, (
-                "Should succeed with initialized empty database"
-            )
-            assert "Database connection successful" in result.stdout, (
-                "Should show success message"
-            )
+            assert result.returncode == 0, "Should succeed with initialized empty database"
+            assert "Database connection successful" in result.stdout, "Should show success message"
             assert "documents : 0" in result.stdout, "Should show 0 documents"
             assert "chunks    : 0" in result.stdout, "Should show 0 chunks"
             assert "embeddings: 0" in result.stdout, "Should show 0 embeddings"
 
             # Test 5: Database with actual data
-            fixtures_content_dir = (
-                Path(__file__).parent / "fixtures" / "content" / "documents"
-            )
+            fixtures_content_dir = Path(__file__).parent / "fixtures" / "content" / "documents"
 
             load_result = subprocess.run(
                 [
@@ -326,9 +298,7 @@ class TestCLIIntegrationSQL:
                 cwd=str(PROJECT_ROOT),
             )
 
-            assert load_result.returncode == 0, (
-                f"Load should succeed: {load_result.stdout}"
-            )
+            assert load_result.returncode == 0, f"Load should succeed: {load_result.stdout}"
 
             # Now test db-status with data
             result = subprocess.run(
@@ -350,19 +320,17 @@ class TestCLIIntegrationSQL:
                 cwd=str(PROJECT_ROOT),
             )
             assert result.returncode == 0, "Should succeed with data in database"
-            assert "Database connection successful" in result.stdout, (
-                "Should show success message"
-            )
+            assert "Database connection successful" in result.stdout, "Should show success message"
             # Should show non-zero counts
-            assert (
-                "documents : " in result.stdout and "documents : 0" not in result.stdout
-            ), "Should show non-zero documents"
-            assert (
-                "chunks    : " in result.stdout and "chunks    : 0" not in result.stdout
-            ), "Should show non-zero chunks"
-            assert (
-                "embeddings: " in result.stdout and "embeddings: 0" not in result.stdout
-            ), "Should show non-zero embeddings"
+            assert "documents : " in result.stdout and "documents : 0" not in result.stdout, (
+                "Should show non-zero documents"
+            )
+            assert "chunks    : " in result.stdout and "chunks    : 0" not in result.stdout, (
+                "Should show non-zero chunks"
+            )
+            assert "embeddings: " in result.stdout and "embeddings: 0" not in result.stdout, (
+                "Should show non-zero embeddings"
+            )
 
         except Exception as e:
             pytest.fail(f"Test failed with exception: {e}")
@@ -377,9 +345,7 @@ class TestCLIIntegrationSQL:
 
         try:
             # First, initialize database with load command
-            fixtures_content_dir = (
-                Path(__file__).parent / "fixtures" / "content" / "documents"
-            )
+            fixtures_content_dir = Path(__file__).parent / "fixtures" / "content" / "documents"
 
             load_cmd = [
                 "uv",
@@ -412,9 +378,7 @@ class TestCLIIntegrationSQL:
                 cwd=str(PROJECT_ROOT),
             )
 
-            assert load_result.returncode == 0, (
-                f"Load command should succeed: {load_result.stderr}"
-            )
+            assert load_result.returncode == 0, f"Load command should succeed: {load_result.stderr}"
 
             # Connect to database
             conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
@@ -469,12 +433,8 @@ class TestCLIIntegrationSQL:
                     cwd=str(PROJECT_ROOT),
                 )
 
-                assert config_result.returncode == 0, (
-                    f"Config command should succeed: {config_result.stderr}"
-                )
-                assert "RAG settings updated successfully" in config_result.stdout, (
-                    "Should show success message"
-                )
+                assert config_result.returncode == 0, f"Config command should succeed: {config_result.stderr}"
+                assert "RAG settings updated successfully" in config_result.stdout, "Should show success message"
 
                 # Verify settings were stored in database
                 with conn.cursor() as cur:
@@ -488,9 +448,7 @@ class TestCLIIntegrationSQL:
                     )
                     row = cur.fetchone()
 
-                    assert row is not None, (
-                        "Settings row should exist after config command"
-                    )
+                    assert row is not None, "Settings row should exist after config command"
 
                     (
                         refinement_prompt,
@@ -503,23 +461,13 @@ class TestCLIIntegrationSQL:
                     ) = row
 
                     # Verify each setting
-                    assert refinement_prompt == "Test custom prompt with {question}", (
-                        "Refinement prompt should match"
-                    )
-                    assert enable_refinement is False, (
-                        "enable_refinement should be False"
-                    )
+                    assert refinement_prompt == "Test custom prompt with {question}", "Refinement prompt should match"
+                    assert enable_refinement is False, "enable_refinement should be False"
                     assert enable_reranking is True, "enable_reranking should be True"
-                    assert similarity_threshold == 0.85, (
-                        "similarity_threshold should be 0.85"
-                    )
+                    assert similarity_threshold == 0.85, "similarity_threshold should be 0.85"
                     assert max_chunks == 20, "max_chunks should be 20"
-                    assert max_tokens_in_context == 8192, (
-                        "max_tokens_in_context should be 8192"
-                    )
-                    assert refinement_questions_count == 3, (
-                        "refinement_questions_count should be 3"
-                    )
+                    assert max_tokens_in_context == 8192, "max_tokens_in_context should be 8192"
+                    assert refinement_questions_count == 3, "refinement_questions_count should be 3"
 
                 # Test updating settings (partial update)
                 update_cmd = [
@@ -550,9 +498,7 @@ class TestCLIIntegrationSQL:
                     cwd=str(PROJECT_ROOT),
                 )
 
-                assert update_result.returncode == 0, (
-                    f"Config update should succeed: {update_result.stderr}"
-                )
+                assert update_result.returncode == 0, f"Config update should succeed: {update_result.stderr}"
 
                 # Verify only specified settings were updated, others remain unchanged
                 with conn.cursor() as cur:
@@ -576,18 +522,12 @@ class TestCLIIntegrationSQL:
                     ) = row
 
                     # Updated values
-                    assert enable_refinement is True, (
-                        "enable_refinement should be updated to True"
-                    )
+                    assert enable_refinement is True, "enable_refinement should be updated to True"
                     assert max_chunks == 15, "max_chunks should be updated to 15"
 
                     # Unchanged values
-                    assert enable_reranking is True, (
-                        "enable_reranking should remain True"
-                    )
-                    assert similarity_threshold == 0.85, (
-                        "similarity_threshold should remain 0.85"
-                    )
+                    assert enable_reranking is True, "enable_reranking should remain True"
+                    assert similarity_threshold == 0.85, "similarity_threshold should remain 0.85"
                     assert refinement_prompt == "Test custom prompt with {question}", (
                         "refinement_prompt should remain unchanged"
                     )
@@ -617,12 +557,8 @@ class TestCLIIntegrationSQL:
                     cwd=str(PROJECT_ROOT),
                 )
 
-                assert empty_result.returncode != 0, (
-                    "Config command should fail when no settings provided"
-                )
-                assert "No settings provided" in empty_result.stdout, (
-                    "Should show error message about no settings"
-                )
+                assert empty_result.returncode != 0, "Config command should fail when no settings provided"
+                assert "No settings provided" in empty_result.stdout, "Should show error message about no settings"
 
                 # Test clearing string settings with "None"
                 clear_prompt_cmd = [
@@ -651,20 +587,14 @@ class TestCLIIntegrationSQL:
                     cwd=str(PROJECT_ROOT),
                 )
 
-                assert clear_result.returncode == 0, (
-                    f"Config command with None should succeed: {clear_result.stderr}"
-                )
+                assert clear_result.returncode == 0, f"Config command with None should succeed: {clear_result.stderr}"
 
                 # Verify refinement_prompt was cleared (set to NULL)
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT refinement_prompt FROM rag_settings WHERE id = 1"
-                    )
+                    cur.execute("SELECT refinement_prompt FROM rag_settings WHERE id = 1")
                     row = cur.fetchone()
                     assert row is not None, "Settings row should still exist"
-                    assert row[0] is None, (
-                        "refinement_prompt should be NULL after clearing with 'None'"
-                    )
+                    assert row[0] is None, "refinement_prompt should be NULL after clearing with 'None'"
 
                 # Test clearing boolean and numeric settings with "None"
                 clear_all_cmd = [

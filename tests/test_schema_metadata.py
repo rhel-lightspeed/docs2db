@@ -1,19 +1,22 @@
 """Tests for schema metadata and change tracking."""
 
-import tempfile
 from pathlib import Path
 
 import psycopg
 import pytest
 
-from docs2db.database import DatabaseManager, load_documents
-from tests.test_config import get_test_db_config, should_skip_postgres_tests
+from docs2db.database import DatabaseManager
+from docs2db.database import load_documents
+from tests.test_config import get_test_db_config
+from tests.test_config import should_skip_postgres_tests
 
 
 def create_connection():
     """Create a connection to the test database."""
     config = get_test_db_config()
-    conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+    conn_string = (
+        f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+    )
     return psycopg.Connection.connect(conn_string)
 
 
@@ -24,7 +27,7 @@ def get_schema_metadata(conn):
         result = cur.fetchone()
         if result:
             columns = [desc[0] for desc in cur.description]
-            return dict(zip(columns, result))
+            return dict(zip(columns, result, strict=False))
     return None
 
 
@@ -34,7 +37,7 @@ def get_schema_changes(conn):
         cur.execute("SELECT * FROM schema_changes ORDER BY id")
         results = cur.fetchall()
         columns = [desc[0] for desc in cur.description]
-        return [dict(zip(columns, row)) for row in results]
+        return [dict(zip(columns, row, strict=False)) for row in results]
 
 
 class TestSchemaMetadata:
@@ -113,9 +116,7 @@ class TestSchemaMetadata:
 
             assert metadata is not None
             assert metadata["title"] == "Test Database"  # Unchanged
-            assert (
-                metadata["description"] == "Test Database for First Load"
-            )  # Unchanged
+            assert metadata["description"] == "Test Database for First Load"  # Unchanged
 
             # Should now have 3 records
             assert len(changes) == 3
@@ -256,9 +257,7 @@ class TestSchemaMetadata:
             assert metadata["description"] == "Test Description"
 
             # Test update_schema_metadata
-            db_manager.update_schema_metadata(
-                conn, title="Updated DB", embedding_models_count=5
-            )
+            db_manager.update_schema_metadata(conn, title="Updated DB", embedding_models_count=5)
             conn.commit()
 
             metadata = get_schema_metadata(conn)

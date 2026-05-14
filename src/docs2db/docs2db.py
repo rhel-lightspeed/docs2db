@@ -1,31 +1,28 @@
 """RAG Pipeline Tools for docs2db"""
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import structlog
 import typer
 
 from docs2db.audit import perform_audit
 from docs2db.chunks import generate_chunks
-from docs2db.database import (
-    check_database_status,
-    configure_rag_settings,
-    dump_database,
-    generate_manifest,
-    load_documents,
-    restore_database,
-)
-from docs2db.db_lifecycle import (
-    destroy_database,
-    get_database_logs,
-    start_database,
-    stop_database,
-)
+from docs2db.database import check_database_status
+from docs2db.database import configure_rag_settings
+from docs2db.database import dump_database
+from docs2db.database import generate_manifest
+from docs2db.database import load_documents
+from docs2db.database import restore_database
+from docs2db.db_lifecycle import destroy_database
+from docs2db.db_lifecycle import get_database_logs
+from docs2db.db_lifecycle import start_database
+from docs2db.db_lifecycle import stop_database
 from docs2db.embed import generate_embeddings
 from docs2db.exceptions import Docs2DBException
 from docs2db.ingest import ingest as ingest_command
 from docs2db.utils import cleanup_orphaned_workers
+
 
 logger = structlog.get_logger(__name__)
 
@@ -34,15 +31,9 @@ app = typer.Typer(help="Make a RAG Database from source content")
 
 @app.command()
 def ingest(
-    source_path: Annotated[
-        Optional[str], typer.Argument(help="Path to directory or file to ingest")
-    ],
-    dry_run: Annotated[
-        bool, typer.Option(help="Show what would be processed without doing it")
-    ] = False,
-    force: Annotated[
-        bool, typer.Option(help="Force reprocessing even if files are up-to-date")
-    ] = False,
+    source_path: Annotated[str | None, typer.Argument(help="Path to directory or file to ingest")],
+    dry_run: Annotated[bool, typer.Option(help="Show what would be processed without doing it")] = False,
+    force: Annotated[bool, typer.Option(help="Force reprocessing even if files are up-to-date")] = False,
 ) -> None:
     """Ingest files using docling to create JSON documents in docs2db_content/ directory."""
     if source_path is None:
@@ -61,50 +52,30 @@ def ingest(
 
 @app.command()
 def chunk(
-    content_dir: Annotated[
-        str | None, typer.Option(help="Path to content directory")
-    ] = None,
+    content_dir: Annotated[str | None, typer.Option(help="Path to content directory")] = None,
     pattern: Annotated[
         str,
-        typer.Option(
-            help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"
-        ),
+        typer.Option(help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"),
     ] = "**",
-    force: Annotated[
-        bool, typer.Option(help="Force reprocessing even if up-to-date")
-    ] = False,
-    dry_run: Annotated[
-        bool, typer.Option(help="Show what would process without doing it")
-    ] = False,
-    skip_context: Annotated[
-        bool | None, typer.Option(help="Skip LLM contextual chunk generation (faster)")
-    ] = None,
-    context_model: Annotated[
-        str | None, typer.Option(help="LLM model for context generation")
-    ] = None,
+    force: Annotated[bool, typer.Option(help="Force reprocessing even if up-to-date")] = False,
+    dry_run: Annotated[bool, typer.Option(help="Show what would process without doing it")] = False,
+    skip_context: Annotated[bool | None, typer.Option(help="Skip LLM contextual chunk generation (faster)")] = None,
+    context_model: Annotated[str | None, typer.Option(help="LLM model for context generation")] = None,
     llm_provider: Annotated[
         str | None,
-        typer.Option(
-            help="LLM provider to use: 'openai' or 'watsonx' (inferred from URL flags if not specified)"
-        ),
+        typer.Option(help="LLM provider to use: 'openai' or 'watsonx' (inferred from URL flags if not specified)"),
     ] = None,
     openai_url: Annotated[
         str | None,
-        typer.Option(
-            help="OpenAI-compatible API URL (default: http://localhost:11434 for Ollama)"
-        ),
+        typer.Option(help="OpenAI-compatible API URL (default: http://localhost:11434 for Ollama)"),
     ] = None,
     watsonx_url: Annotated[
         str | None,
-        typer.Option(
-            help="IBM WatsonX API URL (requires WATSONX_API_KEY and WATSONX_PROJECT_ID env vars)"
-        ),
+        typer.Option(help="IBM WatsonX API URL (requires WATSONX_API_KEY and WATSONX_PROJECT_ID env vars)"),
     ] = None,
     context_limit: Annotated[
         int | None,
-        typer.Option(
-            help="Override model context limit (in tokens) for map-reduce summarization"
-        ),
+        typer.Option(help="Override model context limit (in tokens) for map-reduce summarization"),
     ] = None,
 ) -> None:
     """Generate chunks for content files."""
@@ -129,30 +100,20 @@ def chunk(
 
 @app.command()
 def embed(
-    content_dir: Annotated[
-        str | None, typer.Option(help="Path to content directory")
-    ] = None,
+    content_dir: Annotated[str | None, typer.Option(help="Path to content directory")] = None,
     model: Annotated[
         str | None,
         typer.Option(help="Embedding model to use"),
     ] = None,
     pattern: Annotated[
         str,
-        typer.Option(
-            help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"
-        ),
+        typer.Option(help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"),
     ] = "**",
-    force: Annotated[
-        bool, typer.Option(help="Force regeneration of existing embeddings")
-    ] = False,
-    dry_run: Annotated[
-        bool, typer.Option(help="Show what would process without doing it")
-    ] = False,
+    force: Annotated[bool, typer.Option(help="Force regeneration of existing embeddings")] = False,
+    dry_run: Annotated[bool, typer.Option(help="Show what would process without doing it")] = False,
     workers: Annotated[
         int | None,
-        typer.Option(
-            help="Max worker processes (1 = single-threaded, avoids fork issues on ARM)"
-        ),
+        typer.Option(help="Max worker processes (1 = single-threaded, avoids fork issues on ARM)"),
     ] = None,
 ) -> None:
     """Generate embeddings for chunked content files."""
@@ -173,59 +134,41 @@ def embed(
 
 @app.command()
 def load(
-    content_dir: Annotated[
-        str | None, typer.Option(help="Path to content directory")
-    ] = None,
+    content_dir: Annotated[str | None, typer.Option(help="Path to content directory")] = None,
     model: Annotated[
         str | None,
-        typer.Option(
-            help="Embedding model to load (e.g., ibm-granite/granite-embedding-30m-english)"
-        ),
+        typer.Option(help="Embedding model to load (e.g., ibm-granite/granite-embedding-30m-english)"),
     ] = None,
     pattern: Annotated[
         str,
-        typer.Option(
-            help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"
-        ),
+        typer.Option(help="Directory pattern (e.g., '**' for all, 'external/**', or 'docs/subdir' for exact path)"),
     ] = "**",
-    force: Annotated[
-        bool, typer.Option(help="Force reload of existing documents")
-    ] = False,
+    force: Annotated[bool, typer.Option(help="Force reload of existing documents")] = False,
     host: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database host (auto-detected from compose file)"),
     ] = None,
     port: Annotated[
-        Optional[int],
+        int | None,
         typer.Option(help="Database port (auto-detected from compose file)"),
     ] = None,
     db: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database name (auto-detected from compose file)"),
     ] = None,
     user: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database user (auto-detected from compose file)"),
     ] = None,
     password: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database password (auto-detected from compose file)"),
     ] = None,
-    batch_size: Annotated[
-        int, typer.Option(help="Files per batch for each worker process")
-    ] = 100,
-    username: Annotated[
-        str, typer.Option(help="Username to record in change log")
-    ] = "",
-    title: Annotated[
-        Optional[str], typer.Option(help="Database title for metadata")
-    ] = None,
-    description: Annotated[
-        Optional[str], typer.Option(help="Database description for metadata")
-    ] = None,
-    note: Annotated[
-        Optional[str], typer.Option(help="Note about this load operation")
-    ] = None,
+    batch_size: Annotated[int, typer.Option(help="Files per batch for each worker process")] = 100,
+    username: Annotated[str, typer.Option(help="Username to record in change log")] = "",
+    title: Annotated[str | None, typer.Option(help="Database title for metadata")] = None,
+    description: Annotated[str | None, typer.Option(help="Database description for metadata")] = None,
+    note: Annotated[str | None, typer.Option(help="Note about this load operation")] = None,
 ) -> None:
     """Load documents, chunks, and embeddings into PostgreSQL database with pgvector."""
     try:
@@ -254,23 +197,23 @@ def load(
 @app.command(name="db-status")
 def db_status(
     host: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database host (auto-detected from compose file)"),
     ] = None,
     port: Annotated[
-        Optional[int],
+        int | None,
         typer.Option(help="Database port (auto-detected from compose file)"),
     ] = None,
     db: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database name (auto-detected from compose file)"),
     ] = None,
     user: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database user (auto-detected from compose file)"),
     ] = None,
     password: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database password (auto-detected from compose file)"),
     ] = None,
 ) -> None:
@@ -290,27 +233,25 @@ def db_status(
 
 @app.command(name="db-dump")
 def db_dump(
-    output_file: Annotated[
-        str, typer.Option(help="Output file path for the database dump")
-    ] = "ragdb_dump.sql",
+    output_file: Annotated[str, typer.Option(help="Output file path for the database dump")] = "ragdb_dump.sql",
     host: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database host (auto-detected from compose file)"),
     ] = None,
     port: Annotated[
-        Optional[int],
+        int | None,
         typer.Option(help="Database port (auto-detected from compose file)"),
     ] = None,
     db: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database name (auto-detected from compose file)"),
     ] = None,
     user: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database user (auto-detected from compose file)"),
     ] = None,
     password: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database password (auto-detected from compose file)"),
     ] = None,
     verbose: Annotated[bool, typer.Option(help="Show pg_dump output")] = False,
@@ -334,27 +275,25 @@ def db_dump(
 
 @app.command(name="db-restore")
 def db_restore(
-    input_file: Annotated[
-        str, typer.Argument(help="Input file path for the database dump")
-    ],
+    input_file: Annotated[str, typer.Argument(help="Input file path for the database dump")],
     host: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database host (auto-detected from compose file)"),
     ] = None,
     port: Annotated[
-        Optional[int],
+        int | None,
         typer.Option(help="Database port (auto-detected from compose file)"),
     ] = None,
     db: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database name (auto-detected from compose file)"),
     ] = None,
     user: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database user (auto-detected from compose file)"),
     ] = None,
     password: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database password (auto-detected from compose file)"),
     ] = None,
     verbose: Annotated[bool, typer.Option(help="Show psql output")] = False,
@@ -378,14 +317,10 @@ def db_restore(
 
 @app.command()
 def audit(
-    content_dir: Annotated[
-        str | None, typer.Option(help="Path to content directory")
-    ] = None,
+    content_dir: Annotated[str | None, typer.Option(help="Path to content directory")] = None,
     pattern: Annotated[
         str,
-        typer.Option(
-            help="Directory pattern to audit (e.g., 'external/**' or 'additional_documents/*')"
-        ),
+        typer.Option(help="Directory pattern to audit (e.g., 'external/**' or 'additional_documents/*')"),
     ] = "**",
 ) -> None:
     """Audit to find missing and stale files."""
@@ -403,37 +338,35 @@ def audit(
 @app.command()
 def config(
     refinement_prompt: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Custom prompt for query refinement (use 'None' to clear)"),
     ] = None,
-    refinement: Annotated[
-        Optional[str], typer.Option(help="Enable question refinement: true/false/None")
-    ] = None,
+    refinement: Annotated[str | None, typer.Option(help="Enable question refinement: true/false/None")] = None,
     reranking: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Enable cross-encoder reranking: true/false/None"),
     ] = None,
     similarity_threshold: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Similarity threshold 0.0-1.0 (use 'None' to clear)"),
     ] = None,
     max_chunks: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Maximum chunks to return (use 'None' to clear)"),
     ] = None,
     max_tokens_in_context: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Maximum tokens in context (use 'None' to clear)"),
     ] = None,
     refinement_questions_count: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Number of refined questions (use 'None' to clear)"),
     ] = None,
-    host: Annotated[Optional[str], typer.Option(help="Database host")] = None,
-    port: Annotated[Optional[int], typer.Option(help="Database port")] = None,
-    db: Annotated[Optional[str], typer.Option(help="Database name")] = None,
-    user: Annotated[Optional[str], typer.Option(help="Database user")] = None,
-    password: Annotated[Optional[str], typer.Option(help="Database password")] = None,
+    host: Annotated[str | None, typer.Option(help="Database host")] = None,
+    port: Annotated[int | None, typer.Option(help="Database port")] = None,
+    db: Annotated[str | None, typer.Option(help="Database name")] = None,
+    user: Annotated[str | None, typer.Option(help="Database user")] = None,
+    password: Annotated[str | None, typer.Option(help="Database password")] = None,
 ) -> None:
     """Configure RAG settings in the database.
 
@@ -470,27 +403,25 @@ def config(
 
 @app.command()
 def manifest(
-    output_file: Annotated[
-        str, typer.Option(help="Output file path for the manifest")
-    ] = "manifest.txt",
+    output_file: Annotated[str, typer.Option(help="Output file path for the manifest")] = "manifest.txt",
     host: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database host (auto-detected from compose file)"),
     ] = None,
     port: Annotated[
-        Optional[int],
+        int | None,
         typer.Option(help="Database port (auto-detected from compose file)"),
     ] = None,
     db: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database name (auto-detected from compose file)"),
     ] = None,
     user: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database user (auto-detected from compose file)"),
     ] = None,
     password: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Database password (auto-detected from compose file)"),
     ] = None,
 ) -> None:
@@ -566,9 +497,7 @@ def db_destroy() -> None:
 
 @app.command(name="db-logs")
 def db_logs(
-    follow: Annotated[
-        bool, typer.Option("--follow", "-f", help="Follow logs in real-time")
-    ] = False,
+    follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs in real-time")] = False,
 ) -> None:
     """View PostgreSQL database logs.
 
@@ -585,58 +514,34 @@ def db_logs(
 @app.command()
 def pipeline(
     source_path: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(help="Path to source directory or file to process"),
     ],
-    content_dir: Annotated[
-        str | None, typer.Option(help="Content directory for intermediate files")
-    ] = None,
+    content_dir: Annotated[str | None, typer.Option(help="Content directory for intermediate files")] = None,
     model: Annotated[str | None, typer.Option(help="Embedding model to use")] = None,
-    skip_context: Annotated[
-        bool, typer.Option(help="Skip LLM contextual chunk generation (faster)")
-    ] = False,
-    context_model: Annotated[
-        str | None, typer.Option(help="LLM model for context generation")
-    ] = None,
+    skip_context: Annotated[bool, typer.Option(help="Skip LLM contextual chunk generation (faster)")] = False,
+    context_model: Annotated[str | None, typer.Option(help="LLM model for context generation")] = None,
     llm_provider: Annotated[
         str | None,
-        typer.Option(
-            help="LLM provider to use: 'openai' or 'watsonx' (inferred from URL flags if not specified)"
-        ),
+        typer.Option(help="LLM provider to use: 'openai' or 'watsonx' (inferred from URL flags if not specified)"),
     ] = None,
     openai_url: Annotated[
         str | None,
-        typer.Option(
-            help="OpenAI-compatible API URL (default: http://localhost:11434 for Ollama)"
-        ),
+        typer.Option(help="OpenAI-compatible API URL (default: http://localhost:11434 for Ollama)"),
     ] = None,
     watsonx_url: Annotated[
         str | None,
-        typer.Option(
-            help="IBM WatsonX API URL (requires WATSONX_API_KEY and WATSONX_PROJECT_ID env vars)"
-        ),
+        typer.Option(help="IBM WatsonX API URL (requires WATSONX_API_KEY and WATSONX_PROJECT_ID env vars)"),
     ] = None,
     context_limit: Annotated[
         int | None,
-        typer.Option(
-            help="Override model context limit (in tokens) for map-reduce summarization"
-        ),
+        typer.Option(help="Override model context limit (in tokens) for map-reduce summarization"),
     ] = None,
-    output_file: Annotated[
-        str, typer.Option(help="Output SQL dump file")
-    ] = "ragdb_dump.sql",
-    username: Annotated[
-        str, typer.Option(help="Username to record in change log")
-    ] = "",
-    title: Annotated[
-        Optional[str], typer.Option(help="Database title for metadata")
-    ] = None,
-    description: Annotated[
-        Optional[str], typer.Option(help="Database description for metadata")
-    ] = None,
-    note: Annotated[
-        Optional[str], typer.Option(help="Note about this load operation")
-    ] = None,
+    output_file: Annotated[str, typer.Option(help="Output SQL dump file")] = "ragdb_dump.sql",
+    username: Annotated[str, typer.Option(help="Username to record in change log")] = "",
+    title: Annotated[str | None, typer.Option(help="Database title for metadata")] = None,
+    description: Annotated[str | None, typer.Option(help="Database description for metadata")] = None,
+    note: Annotated[str | None, typer.Option(help="Note about this load operation")] = None,
 ) -> None:
     """Run complete docs2db pipeline: start DB → ingest → chunk → embed → load → dump → stop.
 

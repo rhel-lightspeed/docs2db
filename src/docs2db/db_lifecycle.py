@@ -2,17 +2,18 @@
 
 import shutil
 import subprocess
+
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
 from docs2db.exceptions import ConfigurationError
 
+
 logger = structlog.get_logger()
 
 
-def detect_container_runtime() -> Optional[str]:
+def detect_container_runtime() -> str | None:
     """Detect available container runtime (podman or docker).
 
     Returns:
@@ -43,10 +44,7 @@ def get_compose_file() -> Path:
         return compose_file
 
     # Offer to create a default compose file
-    logger.info(
-        "No postgres-compose.yml found in current directory. "
-        "Creating a default configuration..."
-    )
+    logger.info("No postgres-compose.yml found in current directory. Creating a default configuration...")
 
     default_compose = """name: docs2db
 
@@ -76,8 +74,7 @@ volumes:
         return compose_file
     except Exception as e:
         raise ConfigurationError(
-            f"Could not create postgres-compose.yml: {e}. "
-            f"Please create one manually or ensure write permissions."
+            f"Could not create postgres-compose.yml: {e}. Please create one manually or ensure write permissions."
         ) from e
 
 
@@ -106,8 +103,7 @@ def get_project_name_from_compose(compose_file: Path) -> str:
                 return name
 
     raise ConfigurationError(
-        f"No 'name:' field found in compose file: {compose_file}. "
-        f"Please add a project name to the compose file."
+        f"No 'name:' field found in compose file: {compose_file}. Please add a project name to the compose file."
     )
 
 
@@ -186,9 +182,7 @@ def stop_database(profile: str = "prod") -> bool:
     runtime = detect_container_runtime()
 
     if not runtime:
-        raise ConfigurationError(
-            "Neither Podman nor Docker found. Cannot stop database."
-        )
+        raise ConfigurationError("Neither Podman nor Docker found. Cannot stop database.")
 
     compose_file = get_compose_file()
 
@@ -242,9 +236,7 @@ def destroy_database(profile: str = "prod") -> bool:
     runtime = detect_container_runtime()
 
     if not runtime:
-        raise ConfigurationError(
-            "Neither Podman nor Docker found. Cannot destroy database."
-        )
+        raise ConfigurationError("Neither Podman nor Docker found. Cannot destroy database.")
 
     compose_file = get_compose_file()
 

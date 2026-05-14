@@ -2,22 +2,24 @@
 
 import logging
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
+
+from concurrent.futures import as_completed
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Optional
 
 import structlog
-from rich.console import Console, Group
+
+from rich.console import Console
+from rich.console import Group
 from rich.live import Live
 from rich.logging import RichHandler
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
+from rich.progress import BarColumn
+from rich.progress import Progress
+from rich.progress import SpinnerColumn
+from rich.progress import TextColumn
+from rich.progress import TimeRemainingColumn
 from rich.text import Text
+
 
 logger = structlog.get_logger(__name__)
 
@@ -46,8 +48,8 @@ def batch_generator(files: list[Path], batch_size: int):
 
 def worker_count(
     total_files: int,
-    max_workers: Optional[int] = None,
-    max_workers_config: Optional[int] = None,
+    max_workers: int | None = None,
+    max_workers_config: int | None = None,
 ) -> int:
     """Determine optimal number of workers for processing.
 
@@ -170,7 +172,7 @@ class BatchProcessor:
         progress_message: str,
         batch_size: int,
         mem_threshold_mb: int,
-        max_workers: Optional[int] = None,
+        max_workers: int | None = None,
     ):
         self.worker_function = worker_function
         self.worker_args = worker_args
@@ -184,8 +186,8 @@ class BatchProcessor:
         self.errors = 0
         self.error_data = []
         self.futures = {}
-        self.executor: Optional[ProcessPoolExecutor] = None
-        self.display: Optional[ProgressDisplay] = None
+        self.executor: ProcessPoolExecutor | None = None
+        self.display: ProgressDisplay | None = None
         self.console = Console()
 
     def process_files(
@@ -210,15 +212,11 @@ class BatchProcessor:
 
         batches = batch_generator(to_process, self.batch_size)
 
-        self.console.print(
-            f"[blue]Processing {count} files using {self.max_workers} workers[/blue]"
-        )
+        self.console.print(f"[blue]Processing {count} files using {self.max_workers} workers[/blue]")
 
         self._setup_logging()
 
-        with ProgressDisplay(
-            self.console, self.max_workers, count, self.progress_message
-        ) as display:
+        with ProgressDisplay(self.console, self.max_workers, count, self.progress_message) as display:
             self.display = display
             self.executor = ProcessPoolExecutor(max_workers=self.max_workers)
 
@@ -249,9 +247,7 @@ class BatchProcessor:
             tuple[int, int]: (num_processed, num_failed)
         """
         count = len(to_process)
-        self.console.print(
-            f"[blue]Processing {count} files in single-threaded mode[/blue]"
-        )
+        self.console.print(f"[blue]Processing {count} files in single-threaded mode[/blue]")
 
         batches = list(batch_generator(to_process, self.batch_size))
 
@@ -328,9 +324,7 @@ class BatchProcessor:
         try:
             batch = next(batches)
             self.display.set_worker_status(worker_id, f"processing {batch[0]}")
-            future = self.executor.submit(
-                self.worker_function, batch, *self.worker_args
-            )
+            future = self.executor.submit(self.worker_function, batch, *self.worker_args)
             self.futures[future] = worker_id, batch
             return True
         except StopIteration:
@@ -460,9 +454,7 @@ class BatchProcessor:
                     self.processed += len(batch)
                     self.errors += result["errors"]
                     self.error_data.extend(result["error_data"])
-                    self.display.set_worker_status(
-                        worker_id, "completed before restart"
-                    )
+                    self.display.set_worker_status(worker_id, "completed before restart")
                 except Exception as e:
                     for file in batch:
                         self.error_data.append({"file": file, "error": e})
@@ -503,15 +495,17 @@ class LogCollector:
         self.logs = []
 
     def handle(self, record):
-        self.logs.append({
-            "level": record.levelno,
-            "levelname": record.levelname,
-            "message": record.getMessage(),
-            "name": record.name,
-            "timestamp": record.created,
-            "pathname": getattr(record, "pathname", ""),
-            "lineno": getattr(record, "lineno", 0),
-        })
+        self.logs.append(
+            {
+                "level": record.levelno,
+                "levelname": record.levelname,
+                "message": record.getMessage(),
+                "name": record.name,
+                "timestamp": record.created,
+                "pathname": getattr(record, "pathname", ""),
+                "lineno": getattr(record, "lineno", 0),
+            }
+        )
 
 
 class WorkerLogHandler(logging.Handler):

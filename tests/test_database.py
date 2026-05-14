@@ -2,20 +2,26 @@
 
 import json
 import tempfile
+
 from pathlib import Path
 from unittest.mock import patch
 
 import psycopg
 import pytest
 
-from docs2db.database import DatabaseManager, check_database_status, load_documents
-from tests.test_config import get_test_db_config, should_skip_postgres_tests
+from docs2db.database import check_database_status
+from docs2db.database import DatabaseManager
+from docs2db.database import load_documents
+from tests.test_config import get_test_db_config
+from tests.test_config import should_skip_postgres_tests
 
 
 def create_connection():
     """Create a connection to the test database."""
     config = get_test_db_config()
-    conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+    conn_string = (
+        f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+    )
     return psycopg.Connection.connect(conn_string)
 
 
@@ -23,7 +29,7 @@ def count_records(conn, table_name: str) -> int:
     """Count records in a table."""
     try:
         with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+            cur.execute(f"SELECT COUNT(*) FROM {table_name}")  # noqa: S608
             result = cur.fetchone()
             return result[0] if result else 0
     except Exception:
@@ -50,7 +56,7 @@ class TestDatabaseSQL:
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
 
-        with create_connection() as conn:
+        with create_connection() as conn:  # noqa: SIM117
             # Simple connectivity test
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
@@ -118,9 +124,7 @@ class TestDatabaseSQL:
 
         try:
             with create_connection() as conn:
-                doc_count_before = conn.execute(
-                    "SELECT COUNT(*) FROM documents"
-                ).fetchone()[0]
+                doc_count_before = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         except psycopg.errors.UndefinedTable:
             doc_count_before = 0
 
@@ -139,12 +143,8 @@ class TestDatabaseSQL:
         assert success1 is True
 
         with create_connection() as conn:
-            doc_count_after = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[
-                0
-            ]
-        assert doc_count_after > doc_count_before, (
-            "First load should insert at least one document"
-        )
+            doc_count_after = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        assert doc_count_after > doc_count_before, "First load should insert at least one document"
 
         # Second load with force=False — should skip (documents already loaded)
         success2 = load_documents(
@@ -161,12 +161,8 @@ class TestDatabaseSQL:
         assert success2 is True
 
         with create_connection() as conn:
-            doc_count_after_skip = conn.execute(
-                "SELECT COUNT(*) FROM documents"
-            ).fetchone()[0]
-        assert doc_count_after_skip == doc_count_after, (
-            "force=False should not insert additional documents"
-        )
+            doc_count_after_skip = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        assert doc_count_after_skip == doc_count_after, "force=False should not insert additional documents"
 
         # Third load with force=True — should re-process (forced reload)
         success3 = load_documents(
@@ -262,7 +258,7 @@ class TestDatabaseSQL:
                 port=9999,  # Invalid port
                 db="test_db",
                 user="test_user",
-                password="test_password",
+                password="test_password",  # noqa: S106
             )
         except Exception as e:
             # Should handle connection errors gracefully
@@ -333,21 +329,21 @@ class TestDatabaseSQL:
             good_dir = content_dir / "good_doc"
             good_dir.mkdir()
             good_source = good_dir / "source.json"
-            good_source.write_text(
-                json.dumps({"title": "Good Doc", "content": "Content."})
-            )
+            good_source.write_text(json.dumps({"title": "Good Doc", "content": "Content."}))
             good_chunks_file = good_dir / "chunks.json"
             good_chunks_file.write_text(
-                json.dumps({
-                    "chunks": [
-                        {
-                            "text": "Good document text for savepoint test.",
-                            "contextual_text": "Good document text for savepoint test.",
-                            "metadata": {"chunk_index": 0},
-                        }
-                    ],
-                    "model": "ibm-granite/granite-embedding-30m-english",
-                })
+                json.dumps(
+                    {
+                        "chunks": [
+                            {
+                                "text": "Good document text for savepoint test.",
+                                "contextual_text": "Good document text for savepoint test.",
+                                "metadata": {"chunk_index": 0},
+                            }
+                        ],
+                        "model": "ibm-granite/granite-embedding-30m-english",
+                    }
+                )
             )
             good_embedding_data = {"embeddings": [[0.1] * 384]}
             good_emb_file = good_dir / "gran.json"
@@ -357,21 +353,21 @@ class TestDatabaseSQL:
             bad_dir = content_dir / "bad_doc"
             bad_dir.mkdir()
             bad_source = bad_dir / "source.json"
-            bad_source.write_text(
-                json.dumps({"title": "Bad Doc", "content": "Content."})
-            )
+            bad_source.write_text(json.dumps({"title": "Bad Doc", "content": "Content."}))
             bad_chunks_file = bad_dir / "chunks.json"
             bad_chunks_file.write_text(
-                json.dumps({
-                    "chunks": [
-                        {
-                            "text": "Bad document text for savepoint test.",
-                            "contextual_text": "Bad document text for savepoint test.",
-                            "metadata": {"chunk_index": 0},
-                        }
-                    ],
-                    "model": "ibm-granite/granite-embedding-30m-english",
-                })
+                json.dumps(
+                    {
+                        "chunks": [
+                            {
+                                "text": "Bad document text for savepoint test.",
+                                "contextual_text": "Bad document text for savepoint test.",
+                                "metadata": {"chunk_index": 0},
+                            }
+                        ],
+                        "model": "ibm-granite/granite-embedding-30m-english",
+                    }
+                )
             )
             bad_embedding_data = {"embeddings": [[0.1] * 384]}
             bad_emb_file = bad_dir / "gran.json"
@@ -414,9 +410,7 @@ class TestDatabaseSQL:
                         and params
                         and "bad_doc" in str(params[0])
                     ):
-                        raise RuntimeError(
-                            "Simulated DB failure for savepoint isolation test"
-                        )
+                        raise RuntimeError("Simulated DB failure for savepoint isolation test")
                     return self._conn.execute(sql, params, *args, **kwargs)
 
                 def commit(self):
@@ -444,26 +438,20 @@ class TestDatabaseSQL:
                     "get_direct_connection",
                     side_effect=mock_get_conn,
                 ):
-                    processed, errors = db_manager.load_document_batch(
-                        files_data, content_dir, force=True
-                    )
+                    processed, errors = db_manager.load_document_batch(files_data, content_dir, force=True)
 
                 # Partial success: good_doc processed, bad_doc errored
-                assert processed > 0, (
-                    f"Expected at least one document processed, got {processed}"
-                )
+                assert processed > 0, f"Expected at least one document processed, got {processed}"
                 assert errors > 0, f"Expected at least one error, got {errors}"
 
                 # The successful document must be in the database
-                with create_connection() as conn:
+                with create_connection() as conn:  # noqa: SIM117
                     with conn.cursor() as cur:
                         cur.execute(
                             "SELECT path FROM documents WHERE path = %s",
                             (good_path,),
                         )
-                        assert cur.fetchone() is not None, (
-                            f"Good document '{good_path}' not found in documents table"
-                        )
+                        assert cur.fetchone() is not None, f"Good document '{good_path}' not found in documents table"
             finally:
                 # Clean up test documents
                 with create_connection() as conn:
@@ -506,21 +494,21 @@ class TestDatabaseSQL:
             doc_dir = content_dir / "skipcheck_doc"
             doc_dir.mkdir()
             source = doc_dir / "source.json"
-            source.write_text(
-                json.dumps({"title": "Skip Check Doc", "content": "Content."})
-            )
+            source.write_text(json.dumps({"title": "Skip Check Doc", "content": "Content."}))
             chunks_file = doc_dir / "chunks.json"
             chunks_file.write_text(
-                json.dumps({
-                    "chunks": [
-                        {
-                            "text": "Text for skip-check path test.",
-                            "contextual_text": "Text for skip-check path test.",
-                            "metadata": {"chunk_index": 0},
-                        }
-                    ],
-                    "model": "ibm-granite/granite-embedding-30m-english",
-                })
+                json.dumps(
+                    {
+                        "chunks": [
+                            {
+                                "text": "Text for skip-check path test.",
+                                "contextual_text": "Text for skip-check path test.",
+                                "metadata": {"chunk_index": 0},
+                            }
+                        ],
+                        "model": "ibm-granite/granite-embedding-30m-english",
+                    }
+                )
             )
             embedding_data = {"embeddings": [[0.1] * 384]}
             emb_file = doc_dir / "gran.json"
@@ -533,29 +521,21 @@ class TestDatabaseSQL:
 
             try:
                 # --- First load: force=True inserts the document ---
-                processed_1, errors_1 = db_manager.load_document_batch(
-                    files_data, content_dir, force=True
-                )
+                processed_1, errors_1 = db_manager.load_document_batch(files_data, content_dir, force=True)
                 assert errors_1 == 0, f"First load had unexpected errors: {errors_1}"
-                assert processed_1 == 1, (
-                    f"Expected 1 document processed on first load, got {processed_1}"
-                )
+                assert processed_1 == 1, f"Expected 1 document processed on first load, got {processed_1}"
 
                 # Verify the document is stored with a relative path
-                with create_connection() as conn:
+                with create_connection() as conn:  # noqa: SIM117
                     with conn.cursor() as cur:
                         cur.execute(
                             "SELECT path FROM documents WHERE path = %s",
                             (doc_rel_path,),
                         )
-                        assert cur.fetchone() is not None, (
-                            f"Document not found at relative path '{doc_rel_path}'"
-                        )
+                        assert cur.fetchone() is not None, f"Document not found at relative path '{doc_rel_path}'"
 
                 # --- Second load: force=False should skip (already up to date) ---
-                processed_2, errors_2 = db_manager.load_document_batch(
-                    files_data, content_dir, force=False
-                )
+                processed_2, errors_2 = db_manager.load_document_batch(files_data, content_dir, force=False)
                 assert errors_2 == 0, f"Second load had unexpected errors: {errors_2}"
                 assert processed_2 == 0, (
                     f"Expected 0 documents processed (skip), got {processed_2}. "

@@ -1,10 +1,9 @@
 """Test configuration utilities for database testing."""
 
 import os
-from typing import Dict, Optional
 
 
-def get_test_db_config() -> Dict[str, str]:
+def get_test_db_config() -> dict[str, str]:
     """Get test database configuration from environment variables or defaults.
 
     This allows tests to use completely separate credentials from production.

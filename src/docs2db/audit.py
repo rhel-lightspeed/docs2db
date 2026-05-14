@@ -1,22 +1,24 @@
 """Audit functionality for finding missing and stale files."""
 
 import json
+
 from pathlib import Path
 
 import structlog
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-)
+
+from rich.progress import BarColumn
+from rich.progress import Progress
+from rich.progress import SpinnerColumn
+from rich.progress import TaskProgressColumn
+from rich.progress import TextColumn
 
 from docs2db.chunks import is_chunks_stale
 from docs2db.config import settings
 from docs2db.const import METADATA_SCHEMA_VERSION
-from docs2db.embeddings import EMBEDDING_CONFIGS, is_embedding_stale
+from docs2db.embeddings import EMBEDDING_CONFIGS
+from docs2db.embeddings import is_embedding_stale
 from docs2db.exceptions import ContentError
+
 
 logger = structlog.get_logger(__name__)
 
@@ -96,9 +98,7 @@ def perform_audit(
         metadata_task = progress.add_task("Metadata", total=source_count)
         stale_chunks_task = progress.add_task("Stale chunks", total=source_count)
         stale_embeds_task = progress.add_task("Stale embeds", total=source_count)
-        version_mismatch_task = progress.add_task(
-            "Version mismatches", total=source_count
-        )
+        version_mismatch_task = progress.add_task("Version mismatches", total=source_count)
         orphan_dir_task = progress.add_task("Orphan dirs", total=terminal_count)
         zero_chunks_task = progress.add_task("Zero chunks", total=source_count)
 
@@ -125,9 +125,7 @@ def perform_audit(
                 try:
                     with open(chunks_file) as f:
                         chunks_data = json.load(f)
-                        chunk_count = chunks_data.get("metadata", {}).get(
-                            "chunk_count", 0
-                        )
+                        chunk_count = chunks_data.get("metadata", {}).get("chunk_count", 0)
                         if chunk_count == 0:
                             has_zero_chunks = True
                             progress.advance(zero_chunks_task)
@@ -162,9 +160,7 @@ def perform_audit(
                             model,
                             model_config["dimensions"],
                         ):
-                            messages.append(
-                                f"stale embedding   : {doc_rel_path}/{keyword}.json"
-                            )
+                            messages.append(f"stale embedding   : {doc_rel_path}/{keyword}.json")
                             has_stale_embedding = True
 
             # Advance embed_task once per document, not once per embedding file
@@ -183,11 +179,7 @@ def perform_audit(
             known_files.update(f"{kw}.json" for kw in embedding_keywords)
 
             for file in doc_dir.iterdir():
-                if (
-                    file.is_file()
-                    and file.suffix == ".json"
-                    and file.name not in known_files
-                ):
+                if file.is_file() and file.suffix == ".json" and file.name not in known_files:
                     messages.append(f"unknown file      : {doc_rel_path}/{file.name}")
 
             # Check for meta.json
@@ -208,9 +200,7 @@ def perform_audit(
                     else:
                         progress.advance(metadata_task)
                 except (json.JSONDecodeError, OSError) as e:
-                    messages.append(
-                        f"invalid metadata  : {doc_rel_path}/meta.json ({e})"
-                    )
+                    messages.append(f"invalid metadata  : {doc_rel_path}/meta.json ({e})")
 
         # Check for orphaned directories (terminal directories without source.json)
         for terminal_dir in terminal_dirs:

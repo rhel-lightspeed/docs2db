@@ -3,6 +3,7 @@ import os
 
 import structlog
 
+
 # Determine log level from environment
 if os.getenv("DEBUG") == "1":
     log_level = logging.DEBUG

@@ -1,12 +1,10 @@
 """Tests for document_needs_update function."""
 
-import json
-from datetime import datetime, timezone
-from pathlib import Path
-
 import pytest
 
-from docs2db.ingest import document_needs_update, ingest_file, ingest_from_content
+from docs2db.ingest import document_needs_update
+from docs2db.ingest import ingest_file
+from docs2db.ingest import ingest_from_content
 
 
 @pytest.fixture
@@ -52,9 +50,7 @@ def test_document_needs_update_missing_metadata(test_content_dir):
     source_file.write_text('{"name": "test"}')
 
     # Should need update because metadata is missing (when checking timestamp)
-    assert (
-        document_needs_update(doc_path, source_timestamp="2024-01-15T10:30:00Z") is True
-    )
+    assert document_needs_update(doc_path, source_timestamp="2024-01-15T10:30:00Z") is True
 
 
 def test_document_needs_update_same_file_hash(test_content_dir, sample_html_file):
@@ -68,9 +64,7 @@ def test_document_needs_update_same_file_hash(test_content_dir, sample_html_file
     assert document_needs_update(doc_path, source_file=sample_html_file) is False
 
 
-def test_document_needs_update_different_file_hash(
-    test_content_dir, sample_html_file, tmp_path
-):
+def test_document_needs_update_different_file_hash(test_content_dir, sample_html_file, tmp_path):
     """Test that document with different file hash needs update."""
     doc_path = test_content_dir / "test_doc"
 
@@ -79,9 +73,7 @@ def test_document_needs_update_different_file_hash(
 
     # Create a modified version of the file
     modified_file = tmp_path / "modified.html"
-    modified_file.write_text(
-        "<html><body><h1>Modified</h1><p>Different content</p></body></html>"
-    )
+    modified_file.write_text("<html><body><h1>Modified</h1><p>Different content</p></body></html>")
 
     # Check with modified source file - should be True (hash differs)
     assert document_needs_update(doc_path, source_file=modified_file) is True
@@ -93,9 +85,7 @@ def test_document_needs_update_same_content_hash(test_content_dir):
     content = "<html><body><h1>Test</h1></body></html>"
 
     # Ingest from content
-    ingest_from_content(
-        content, doc_path, "test.html", source_metadata={"source_type": "test"}
-    )
+    ingest_from_content(content, doc_path, "test.html", source_metadata={"source_type": "test"})
 
     # Check with same content - should be False (hash matches)
     assert document_needs_update(doc_path, content=content) is False
@@ -107,9 +97,7 @@ def test_document_needs_update_different_content_hash(test_content_dir):
     original_content = "<html><body><h1>Original</h1></body></html>"
 
     # Ingest from content
-    ingest_from_content(
-        original_content, doc_path, "test.html", source_metadata={"source_type": "test"}
-    )
+    ingest_from_content(original_content, doc_path, "test.html", source_metadata={"source_type": "test"})
 
     # Check with different content - should be True (hash differs)
     modified_content = "<html><body><h1>Modified</h1></body></html>"
@@ -164,9 +152,7 @@ def test_document_needs_update_timestamp_but_no_stored(test_content_dir):
     )
 
     # Check with timestamp - should be True (no stored timestamp to compare)
-    assert (
-        document_needs_update(doc_path, source_timestamp="2024-01-15T10:30:00Z") is True
-    )
+    assert document_needs_update(doc_path, source_timestamp="2024-01-15T10:30:00Z") is True
 
 
 def test_document_needs_update_bytes_content(test_content_dir):
@@ -175,9 +161,7 @@ def test_document_needs_update_bytes_content(test_content_dir):
     content_bytes = b"<html><body>Test</body></html>"
 
     # Ingest from bytes content
-    ingest_from_content(
-        content_bytes, doc_path, "test.html", source_metadata={"source_type": "test"}
-    )
+    ingest_from_content(content_bytes, doc_path, "test.html", source_metadata={"source_type": "test"})
 
     # Check with same bytes content - should be False
     assert document_needs_update(doc_path, content=content_bytes) is False
@@ -187,9 +171,7 @@ def test_document_needs_update_bytes_content(test_content_dir):
     assert document_needs_update(doc_path, content=different_bytes) is True
 
 
-def test_document_needs_update_multiple_checks_all_pass(
-    test_content_dir, sample_html_file
-):
+def test_document_needs_update_multiple_checks_all_pass(test_content_dir, sample_html_file):
     """Test that document doesn't need update when all checks pass."""
     doc_path = test_content_dir / "test_doc"
     timestamp = "2024-01-15T10:30:00Z"
@@ -198,17 +180,10 @@ def test_document_needs_update_multiple_checks_all_pass(
     ingest_file(sample_html_file, doc_path, source_metadata={"modified": timestamp})
 
     # Check with both matching file and timestamp - should be False
-    assert (
-        document_needs_update(
-            doc_path, source_file=sample_html_file, source_timestamp=timestamp
-        )
-        is False
-    )
+    assert document_needs_update(doc_path, source_file=sample_html_file, source_timestamp=timestamp) is False
 
 
-def test_document_needs_update_multiple_checks_one_fails(
-    test_content_dir, sample_html_file
-):
+def test_document_needs_update_multiple_checks_one_fails(test_content_dir, sample_html_file):
     """Test that document needs update when any check fails."""
     doc_path = test_content_dir / "test_doc"
     old_timestamp = "2024-01-15T10:30:00Z"
@@ -218,12 +193,7 @@ def test_document_needs_update_multiple_checks_one_fails(
 
     # Check with matching file but different timestamp - should be True
     new_timestamp = "2024-01-16T10:30:00Z"
-    assert (
-        document_needs_update(
-            doc_path, source_file=sample_html_file, source_timestamp=new_timestamp
-        )
-        is True
-    )
+    assert document_needs_update(doc_path, source_file=sample_html_file, source_timestamp=new_timestamp) is True
 
 
 def test_document_needs_update_corrupted_metadata(test_content_dir):
@@ -240,6 +210,4 @@ def test_document_needs_update_corrupted_metadata(test_content_dir):
     meta_file.write_text("{ invalid json")
 
     # Should need update because metadata is corrupted (when checking timestamp)
-    assert (
-        document_needs_update(doc_path, source_timestamp="2024-01-15T10:30:00Z") is True
-    )
+    assert document_needs_update(doc_path, source_timestamp="2024-01-15T10:30:00Z") is True
