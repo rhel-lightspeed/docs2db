@@ -1,12 +1,15 @@
 """Integration tests for CLI commands."""
 
 import subprocess
+
 from pathlib import Path
 
 import psycopg
 import pytest
 
-from tests.test_config import get_test_db_config, should_skip_postgres_tests
+from tests.test_config import get_test_db_config
+from tests.test_config import should_skip_postgres_tests
+
 
 # Get project root directory dynamically
 PROJECT_ROOT = Path(__file__).parent.parent

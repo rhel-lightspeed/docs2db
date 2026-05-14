@@ -3,6 +3,7 @@
 import os
 import signal
 import time
+
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +11,11 @@ import psutil
 import structlog
 
 from docs2db.config import settings
-from docs2db.embeddings import Embedding, get_optimal_device
-from docs2db.multiproc import BatchProcessor, setup_worker_logging
+from docs2db.embeddings import Embedding
+from docs2db.embeddings import get_optimal_device
+from docs2db.multiproc import BatchProcessor
+from docs2db.multiproc import setup_worker_logging
+
 
 logger = structlog.get_logger(__name__)
 

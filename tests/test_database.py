@@ -2,14 +2,18 @@
 
 import json
 import tempfile
+
 from pathlib import Path
 from unittest.mock import patch
 
 import psycopg
 import pytest
 
-from docs2db.database import DatabaseManager, check_database_status, load_documents
-from tests.test_config import get_test_db_config, should_skip_postgres_tests
+from docs2db.database import check_database_status
+from docs2db.database import DatabaseManager
+from docs2db.database import load_documents
+from tests.test_config import get_test_db_config
+from tests.test_config import should_skip_postgres_tests
 
 
 def create_connection():

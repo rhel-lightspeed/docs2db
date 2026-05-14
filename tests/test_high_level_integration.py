@@ -10,17 +10,21 @@ This test covers the entire workflow:
 """
 
 import json
+
 from pathlib import Path
 
 import psycopg
 import pytest
 
 from docs2db.chunks import generate_chunks
-from docs2db.database import DatabaseManager, check_database_status, load_documents
+from docs2db.database import check_database_status
+from docs2db.database import DatabaseManager
+from docs2db.database import load_documents
 from docs2db.embed import generate_embeddings
 from docs2db.exceptions import DatabaseError
 from docs2db.ingest import ingest
-from tests.test_config import get_test_db_config, should_skip_postgres_tests
+from tests.test_config import get_test_db_config
+from tests.test_config import should_skip_postgres_tests
 
 
 def count_records(conn, table_name: str) -> int:

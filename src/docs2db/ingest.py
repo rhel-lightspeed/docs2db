@@ -5,22 +5,29 @@ import logging
 import mimetypes
 import os
 import time
-from datetime import datetime, timezone
+
+from collections.abc import Iterator
+from datetime import datetime
+from datetime import UTC
 from importlib.metadata import version
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import psutil
 import structlog
+
 from docling.document_converter import DocumentConverter
 from docling_core.types.io import DocumentStream
 
 from docs2db.config import settings
 from docs2db.const import METADATA_SCHEMA_VERSION
 from docs2db.exceptions import Docs2DBException
-from docs2db.multiproc import BatchProcessor, setup_worker_logging
-from docs2db.utils import hash_bytes, hash_file
+from docs2db.multiproc import BatchProcessor
+from docs2db.multiproc import setup_worker_logging
+from docs2db.utils import hash_bytes
+from docs2db.utils import hash_file
+
 
 logger = structlog.get_logger(__name__)
 
@@ -355,9 +362,7 @@ def document_needs_update(
         if stored_hash is None:
             # Have content but no stored hash - needs update
             return True
-        current_hash = hash_bytes(
-            content if isinstance(content, bytes) else content.encode("utf-8")
-        )
+        current_hash = hash_bytes(content if isinstance(content, bytes) else content.encode("utf-8"))
         if current_hash != stored_hash:
             # Hash differs - needs update
             return True
@@ -475,9 +480,7 @@ def ingest_from_content(
         return True
 
     except Exception as e:
-        logger.error(
-            "Failed to convert content", target=str(content_path), error=str(e)
-        )
+        logger.error("Failed to convert content", target=str(content_path), error=str(e))
         return False
 
 
@@ -498,7 +501,7 @@ def generate_metadata(
     metadata: dict[str, Any] = {
         "metadata_version": METADATA_SCHEMA_VERSION,
         "processing": {
-            "ingested_at": datetime.now(timezone.utc).isoformat(),
+            "ingested_at": datetime.now(UTC).isoformat(),
             "source_hash": source_hash,
             "docling_version": version("docling"),
         },
@@ -524,7 +527,7 @@ def generate_metadata(
         filesystem_meta = {
             "original_path": str(relative_path.with_suffix(source_file.suffix)),
             "size_bytes": stat.st_size,
-            "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            "mtime": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
         }
         mime, _ = mimetypes.guess_type(source_file)
         if mime:
@@ -546,9 +549,7 @@ def generate_metadata(
         if content_meta:
             metadata["content"] = content_meta
     except (OSError, json.JSONDecodeError) as e:
-        logger.warning(
-            f"Could not read docling document for metadata from {content_path}: {e}"
-        )
+        logger.warning(f"Could not read docling document for metadata from {content_path}: {e}")
 
     if source_metadata:
         metadata["source"] = source_metadata
@@ -602,9 +603,7 @@ def ingest(source_path: str, dry_run: bool = False, force: bool = False) -> bool
         logger.info("Dry run mode - would process:")
         for source_file in source_files:
             content_path = generate_content_path(source_file, source_root)
-            logger.info(
-                source_file.name, source=str(source_file), target=str(content_path)
-            )
+            logger.info(source_file.name, source=str(source_file), target=str(content_path))
         return True
 
     # Use multiprocessing for ingestion

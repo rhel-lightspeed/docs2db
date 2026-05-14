@@ -29,9 +29,11 @@ Usage:
 import asyncio
 import sys
 
+
 # Try to import docs2db-api
 try:
-    from docs2db_api.rag.engine import RAGConfig, UniversalRAGEngine
+    from docs2db_api.rag.engine import RAGConfig
+    from docs2db_api.rag.engine import UniversalRAGEngine
 except ImportError:
     print("=" * 80)
     print("⚠️  ERROR: docs2db-api is not installed")
@@ -86,7 +88,7 @@ async def test_rag_query(
         enable_question_refinement=enable_refinement,
     )
 
-    print(f"📊 Configuration:")
+    print("📊 Configuration:")
     print(f"   Model: {model}")
     print(f"   Threshold: {threshold}")
     print(f"   Max results: {limit}")
@@ -136,7 +138,7 @@ async def test_rag_query(
             if doc.get("bm25_rank") is not None:
                 print(f"   BM25 Rank: {doc['bm25_rank']:.3f}")
 
-            print(f"   Text preview:")
+            print("   Text preview:")
             text_preview = doc["text"][:200]
             print(f"      {text_preview}...")
 
@@ -209,9 +211,7 @@ async def interactive_rag_test(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Test RAG functionality using docs2db-api"
-    )
+    parser = argparse.ArgumentParser(description="Test RAG functionality using docs2db-api")
     parser.add_argument(
         "--query",
         "-q",
@@ -243,9 +243,7 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable question refinement",
     )
-    parser.add_argument(
-        "--interactive", "-i", action="store_true", help="Run in interactive mode"
-    )
+    parser.add_argument("--interactive", "-i", action="store_true", help="Run in interactive mode")
 
     args = parser.parse_args()
 
@@ -260,9 +258,5 @@ if __name__ == "__main__":
             )
         )
     else:
-        results = asyncio.run(
-            test_rag_query(
-                args.query, args.limit, args.threshold, args.model, enable_refinement
-            )
-        )
+        results = asyncio.run(test_rag_query(args.query, args.limit, args.threshold, args.model, enable_refinement))
         sys.exit(0 if results else 1)

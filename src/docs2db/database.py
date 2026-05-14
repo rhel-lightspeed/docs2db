@@ -5,26 +5,35 @@ import logging
 import os
 import subprocess
 import time
-from datetime import datetime, timezone
+
+from datetime import datetime
+from datetime import UTC
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import psutil
 import psycopg
 import structlog
 import yaml
-from psycopg.sql import SQL, Identifier
+
+from psycopg.sql import Identifier
+from psycopg.sql import SQL
 
 from docs2db.config import settings
 from docs2db.const import DATABASE_SCHEMA_VERSION
-from docs2db.embeddings import EMBEDDING_CONFIGS, create_embedding_filename
-from docs2db.exceptions import ConfigurationError, ContentError, DatabaseError
-from docs2db.multiproc import BatchProcessor, setup_worker_logging
+from docs2db.embeddings import create_embedding_filename
+from docs2db.embeddings import EMBEDDING_CONFIGS
+from docs2db.exceptions import ConfigurationError
+from docs2db.exceptions import ContentError
+from docs2db.exceptions import DatabaseError
+from docs2db.multiproc import BatchProcessor
+from docs2db.multiproc import setup_worker_logging
+
 
 logger = structlog.get_logger()
 
 
-def get_db_config() -> Dict[str, str]:
+def get_db_config() -> dict[str, str]:
     """Get database connection parameters from multiple sources.
 
     Configuration precedence (highest to lowest):
@@ -41,13 +50,15 @@ def get_db_config() -> Dict[str, str]:
     """
     # Check for conflicting configuration sources
     has_database_url = bool(os.getenv("DATABASE_URL"))
-    has_postgres_vars = any([
-        os.getenv("POSTGRES_HOST"),
-        os.getenv("POSTGRES_PORT"),
-        os.getenv("POSTGRES_DB"),
-        os.getenv("POSTGRES_USER"),
-        os.getenv("POSTGRES_PASSWORD"),
-    ])
+    has_postgres_vars = any(
+        [
+            os.getenv("POSTGRES_HOST"),
+            os.getenv("POSTGRES_PORT"),
+            os.getenv("POSTGRES_DB"),
+            os.getenv("POSTGRES_USER"),
+            os.getenv("POSTGRES_PASSWORD"),
+        ]
+    )
 
     if has_database_url and has_postgres_vars:
         raise ConfigurationError(
@@ -68,7 +79,7 @@ def get_db_config() -> Dict[str, str]:
     compose_file = Path.cwd() / "postgres-compose.yml"
     if compose_file.exists():
         try:
-            with open(compose_file, "r") as f:
+            with open(compose_file) as f:
                 compose_data = yaml.safe_load(f)
 
             db_service = compose_data.get("services", {}).get("db", {})
@@ -124,9 +135,7 @@ def get_db_config() -> Dict[str, str]:
                     else:
                         config["host"] = host_port
                 else:
-                    raise ConfigurationError(
-                        f"Invalid DATABASE_URL format (missing @): {database_url}"
-                    )
+                    raise ConfigurationError(f"Invalid DATABASE_URL format (missing @): {database_url}")
             else:
                 raise ConfigurationError(
                     f"Invalid DATABASE_URL scheme. Expected postgresql:// or postgres://, "
@@ -136,8 +145,7 @@ def get_db_config() -> Dict[str, str]:
             raise
         except Exception as e:
             raise ConfigurationError(
-                f"Failed to parse DATABASE_URL: {e}. "
-                f"Expected format: postgresql://user:password@host:port/database"
+                f"Failed to parse DATABASE_URL: {e}. Expected format: postgresql://user:password@host:port/database"
             ) from e
 
     # Individual environment variables override everything (highest precedence)
@@ -185,8 +193,8 @@ class DatabaseManager:
     def insert_schema_metadata(
         self,
         conn,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
+        title: str | None = None,
+        description: str | None = None,
     ) -> None:
         """Insert initial schema metadata record."""
         conn.execute(
@@ -202,9 +210,9 @@ class DatabaseManager:
     def update_schema_metadata(
         self,
         conn,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        embedding_models_count: Optional[int] = None,
+        title: str | None = None,
+        description: str | None = None,
+        embedding_models_count: int | None = None,
     ) -> None:
         """Update schema metadata record."""
         updates = []
@@ -236,11 +244,7 @@ class DatabaseManager:
         lines.append(f"\nUpdate #{change_data['id']}:")
 
         # Timestamp (always show)
-        timestamp = (
-            change_data["changed_at"].strftime("%Y-%m-%d %H:%M")
-            if change_data["changed_at"]
-            else "Unknown"
-        )
+        timestamp = change_data["changed_at"].strftime("%Y-%m-%d %H:%M") if change_data["changed_at"] else "Unknown"
         lines.append(f"  Timestamp      : {timestamp}")
 
         # User (only if set)
@@ -289,8 +293,8 @@ class DatabaseManager:
         conn,
         name: str,
         dimensions: int,
-        provider: Optional[str] = None,
-        description: Optional[str] = None,
+        provider: str | None = None,
+        description: str | None = None,
     ) -> int:
         """Insert a new model and return its ID.
 
@@ -318,13 +322,13 @@ class DatabaseManager:
 
         return row[0]
 
-    def get_model(self, conn, name: str) -> Optional[int]:
+    def get_model(self, conn, name: str) -> int | None:
         """Get model ID by name."""
         result = conn.execute("SELECT id FROM models WHERE name = %s", [name])
         row = result.fetchone()
         return row[0] if row else None
 
-    def get_model_info(self, conn, model: int) -> Optional[dict]:
+    def get_model_info(self, conn, model: int) -> dict | None:
         """Get model information by ID."""
         result = conn.execute(
             "SELECT id, name, dimensions, provider, description, created_at FROM models WHERE id = %s",
@@ -352,7 +356,7 @@ class DatabaseManager:
         chunks_deleted: int = 0,
         embeddings_added: int = 0,
         embeddings_deleted: int = 0,
-        embedding_models_added: Optional[List[str]] = None,
+        embedding_models_added: list[str] | None = None,
         notes: str = "",
     ) -> None:
         """Insert a schema change record."""
@@ -549,22 +553,20 @@ class DatabaseManager:
                 self.insert_schema_metadata(conn)
 
                 # Insert initial change record (creation event)
-                self.insert_schema_change(
-                    conn, changed_by_user="", notes="Database initialized"
-                )
+                self.insert_schema_change(conn, changed_by_user="", notes="Database initialized")
 
                 conn.commit()
                 logger.info("Database schema initialized successfully")
 
     def update_rag_settings(
         self,
-        refinement_prompt: Optional[str] = None,
-        enable_refinement: Optional[bool] = None,
-        enable_reranking: Optional[bool] = None,
-        similarity_threshold: Optional[float] = None,
-        max_chunks: Optional[int] = None,
-        max_tokens_in_context: Optional[int] = None,
-        refinement_questions_count: Optional[int] = None,
+        refinement_prompt: str | None = None,
+        enable_refinement: bool | None = None,
+        enable_reranking: bool | None = None,
+        similarity_threshold: float | None = None,
+        max_chunks: int | None = None,
+        max_tokens_in_context: int | None = None,
+        refinement_questions_count: int | None = None,
         _clear_refinement_prompt: bool = False,
         _clear_enable_refinement: bool = False,
         _clear_enable_reranking: bool = False,
@@ -685,9 +687,7 @@ class DatabaseManager:
                     updated_fields.append("refinement_questions_count")
 
                 if updates:
-                    update_sql = (
-                        f"UPDATE rag_settings SET {', '.join(updates)} WHERE id = 1"
-                    )
+                    update_sql = f"UPDATE rag_settings SET {', '.join(updates)} WHERE id = 1"
                     conn.execute(update_sql, values)
                     logger.info(f"RAG settings updated: {', '.join(updated_fields)}")
                 else:
@@ -695,7 +695,7 @@ class DatabaseManager:
 
             conn.commit()
 
-    def get_rag_settings(self) -> Optional[Dict[str, Any]]:
+    def get_rag_settings(self) -> dict[str, Any] | None:
         """Get RAG settings from the database.
 
         Returns:
@@ -731,12 +731,12 @@ class DatabaseManager:
 
     def load_document_batch(
         self,
-        files_data: List[
-            Tuple[Path, Path, str, Dict[str, Any], Path]
+        files_data: list[
+            tuple[Path, Path, str, dict[str, Any], Path]
         ],  # (source_file, chunks_file, model, embedding_data, embedding_file)
         content_dir: Path,
         force: bool = False,
-    ) -> Tuple[int, int]:
+    ) -> tuple[int, int]:
         """Load a batch of documents, chunks, and embeddings using bulk operations."""
 
         processed = 0
@@ -777,7 +777,7 @@ class DatabaseManager:
         ) in files_data:
             try:
                 # Load chunks data
-                with open(chunks_file, "r", encoding="utf-8") as f:
+                with open(chunks_file, encoding="utf-8") as f:
                     chunks_json = json.load(f)
 
                 chunks = chunks_json.get("chunks", [])
@@ -800,14 +800,16 @@ class DatabaseManager:
                     self._convert_timestamp(stats.st_mtime),
                     str(chunks_file),
                 )
-                documents_data.append((
-                    source_file,
-                    doc_data,
-                    chunks,
-                    embedding_vectors,
-                    model_id,
-                    embedding_file,
-                ))
+                documents_data.append(
+                    (
+                        source_file,
+                        doc_data,
+                        chunks,
+                        embedding_vectors,
+                        model_id,
+                        embedding_file,
+                    )
+                )
 
             except Exception as e:
                 logger.error(f"Failed to prepare {source_file.name}: {e}")
@@ -830,9 +832,7 @@ class DatabaseManager:
                     embedding_file,
                 ) in enumerate(documents_data):
                     try:
-                        conn.execute(
-                            SQL("SAVEPOINT {}").format(Identifier(f"sp_doc_{idx}"))
-                        )
+                        conn.execute(SQL("SAVEPOINT {}").format(Identifier(f"sp_doc_{idx}")))
                         # Check if we should skip (not force and current embeddings exist)
                         if not force:
                             # Get existing embeddings creation time
@@ -857,7 +857,7 @@ class DatabaseManager:
                                 # Get embedding file modification time
                                 if embedding_file and embedding_file.exists():
                                     embedding_file_mtime = datetime.fromtimestamp(
-                                        embedding_file.stat().st_mtime, tz=timezone.utc
+                                        embedding_file.stat().st_mtime, tz=UTC
                                     )
 
                                     # Skip only if database embeddings are newer than the embedding file
@@ -881,9 +881,7 @@ class DatabaseManager:
                         )
                         doc_row = doc_result.fetchone()
                         if doc_row is None:
-                            raise DatabaseError(
-                                f"Failed to insert/update document: {source_file}"
-                            )
+                            raise DatabaseError(f"Failed to insert/update document: {source_file}")
 
                         document_id = doc_row[0]
                         doc_path_to_id[str(source_file)] = document_id
@@ -906,29 +904,21 @@ class DatabaseManager:
                                 chunk["contextual_text"],
                                 json.dumps(chunk.get("metadata", {})),
                             )
-                            chunks_data.append((
-                                source_file,
-                                chunk_data,
-                                embedding_vector,
-                                model_id,
-                            ))
-
-                        conn.execute(
-                            SQL("RELEASE SAVEPOINT {}").format(
-                                Identifier(f"sp_doc_{idx}")
+                            chunks_data.append(
+                                (
+                                    source_file,
+                                    chunk_data,
+                                    embedding_vector,
+                                    model_id,
+                                )
                             )
-                        )
+
+                        conn.execute(SQL("RELEASE SAVEPOINT {}").format(Identifier(f"sp_doc_{idx}")))
                         processed += 1
 
                     except Exception as e:
-                        conn.execute(
-                            SQL("ROLLBACK TO SAVEPOINT {}").format(
-                                Identifier(f"sp_doc_{idx}")
-                            )
-                        )
-                        logger.error(
-                            f"Failed to process document {source_file.name}: {e}"
-                        )
+                        conn.execute(SQL("ROLLBACK TO SAVEPOINT {}").format(Identifier(f"sp_doc_{idx}")))
+                        logger.error(f"Failed to process document {source_file.name}: {e}")
                         errors += 1
                         continue
 
@@ -940,9 +930,7 @@ class DatabaseManager:
                     _,
                 ) in enumerate(chunks_data):
                     try:
-                        conn.execute(
-                            SQL("SAVEPOINT {}").format(Identifier(f"sp_chunk_{idx}"))
-                        )
+                        conn.execute(SQL("SAVEPOINT {}").format(Identifier(f"sp_chunk_{idx}")))
                         chunk_result = conn.execute(
                             """
                             INSERT INTO chunks (document_id, chunk_index, text, contextual_text, metadata, text_search_vector)
@@ -954,14 +942,11 @@ class DatabaseManager:
                                 text_search_vector = to_tsvector('english', EXCLUDED.contextual_text)
                             RETURNING id
                             """,
-                            chunk_data
-                            + (chunk_data[3],),  # Add contextual_text for tsvector
+                            chunk_data + (chunk_data[3],),  # Add contextual_text for tsvector
                         )
                         chunk_row = chunk_result.fetchone()
                         if chunk_row is None:
-                            raise DatabaseError(
-                                f"Failed to insert chunk for {source_file}"
-                            )
+                            raise DatabaseError(f"Failed to insert chunk for {source_file}")
 
                         chunk_id = chunk_row[0]
 
@@ -972,27 +957,17 @@ class DatabaseManager:
                             embedding_vector,
                         )
                         embeddings_data.append(embedding_data_tuple)
-                        conn.execute(
-                            SQL("RELEASE SAVEPOINT {}").format(
-                                Identifier(f"sp_chunk_{idx}")
-                            )
-                        )
+                        conn.execute(SQL("RELEASE SAVEPOINT {}").format(Identifier(f"sp_chunk_{idx}")))
 
                     except Exception as e:
-                        conn.execute(
-                            SQL("ROLLBACK TO SAVEPOINT {}").format(
-                                Identifier(f"sp_chunk_{idx}")
-                            )
-                        )
+                        conn.execute(SQL("ROLLBACK TO SAVEPOINT {}").format(Identifier(f"sp_chunk_{idx}")))
                         logger.error(f"Failed to insert chunk for {source_file}: {e}")
                         errors += 1
 
                 # Bulk insert embeddings
                 for idx, embedding_tuple in enumerate(embeddings_data):
                     try:
-                        conn.execute(
-                            SQL("SAVEPOINT {}").format(Identifier(f"sp_emb_{idx}"))
-                        )
+                        conn.execute(SQL("SAVEPOINT {}").format(Identifier(f"sp_emb_{idx}")))
                         conn.execute(
                             """
                             INSERT INTO embeddings (chunk_id, model, embedding)
@@ -1003,17 +978,9 @@ class DatabaseManager:
                             """,
                             embedding_tuple,
                         )
-                        conn.execute(
-                            SQL("RELEASE SAVEPOINT {}").format(
-                                Identifier(f"sp_emb_{idx}")
-                            )
-                        )
+                        conn.execute(SQL("RELEASE SAVEPOINT {}").format(Identifier(f"sp_emb_{idx}")))
                     except Exception as e:
-                        conn.execute(
-                            SQL("ROLLBACK TO SAVEPOINT {}").format(
-                                Identifier(f"sp_emb_{idx}")
-                            )
-                        )
+                        conn.execute(SQL("ROLLBACK TO SAVEPOINT {}").format(Identifier(f"sp_emb_{idx}")))
                         logger.error(f"Failed to insert embedding: {e}")
                         errors += 1
 
@@ -1042,9 +1009,9 @@ class DatabaseManager:
 
     def _convert_timestamp(self, unix_timestamp: float):
         """Convert Unix timestamp to datetime object for PostgreSQL."""
-        return datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
+        return datetime.fromtimestamp(unix_timestamp, tz=UTC)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get database statistics."""
         with self.get_direct_connection() as conn:
             # Document stats
@@ -1138,11 +1105,11 @@ class DatabaseManager:
 
 
 def check_database_status(
-    host: Optional[str] = None,
-    port: Optional[int] = None,
-    db: Optional[str] = None,
-    user: Optional[str] = None,
-    password: Optional[str] = None,
+    host: str | None = None,
+    port: int | None = None,
+    db: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
 ) -> None:
     """Check database connectivity and display statistics."""
     db_defaults = get_db_config()
@@ -1153,11 +1120,7 @@ def check_database_status(
     password = password if password is not None else db_defaults["password"]
 
     logger.info(
-        "\nCheck database status:\n"
-        f"  Host    : {host}\n"
-        f"  Port    : {port}\n"
-        f"  Database: {db}\n"
-        f"  user    : {user}"
+        f"\nCheck database status:\n  Host    : {host}\n  Port    : {port}\n  Database: {db}\n  user    : {user}"
     )
 
     # Suppress psycopg connection warnings for cleaner error messages
@@ -1197,9 +1160,7 @@ def check_database_status(
             or "could not receive data" in error_msg
             or "couldn't get a connection" in error_msg
         ):
-            logger.error(
-                "Database is not running. Start database with 'docs2db db-start'"
-            )
+            logger.error("Database is not running. Start database with 'docs2db db-start'")
         elif (
             "authentication failed" in error_msg
             or "no password supplied" in error_msg
@@ -1228,9 +1189,7 @@ def check_database_status(
 
     # Check for pgvector extension
     with db_manager.get_direct_connection() as conn:
-        ext_result = conn.execute(
-            "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
-        )
+        ext_result = conn.execute("SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'")
         ext_row = ext_result.fetchone()
         if ext_row:
             _ext_name, ext_version = ext_row
@@ -1265,17 +1224,13 @@ def check_database_status(
             )
             raise DatabaseError("Partial schema found")
         else:
-            logger.error(
-                "No docs2db tables found. Run 'uv run docs2db load' to initialize"
-            )
+            logger.error("No docs2db tables found. Run 'uv run docs2db load' to initialize")
             raise DatabaseError("No docs2db tables found")
 
     # Get database statistics
     stats = db_manager.get_stats()
 
-    total_embeddings = sum(
-        model_info["count"] for model_info in stats["embedding_models"].values()
-    )
+    total_embeddings = sum(model_info["count"] for model_info in stats["embedding_models"].values())
 
     logger.info(
         "\nDatabase statistics summary:\n"
@@ -1301,7 +1256,7 @@ def check_database_status(
             metadata_row = metadata_result.fetchone()
             if metadata_row and metadata_result.description:
                 columns = [desc[0] for desc in metadata_result.description]
-                metadata = dict(zip(columns, metadata_row))
+                metadata = dict(zip(columns, metadata_row, strict=False))
 
                 logger.info(
                     "\nSchema Metadata:\n"
@@ -1342,7 +1297,7 @@ def check_database_status(
             for row in changes_result:
                 if changes_result.description:
                     columns = [desc[0] for desc in changes_result.description]
-                    change_data = dict(zip(columns, row))
+                    change_data = dict(zip(columns, row, strict=False))
                     changes.append(change_data)
 
             if changes:
@@ -1376,9 +1331,7 @@ def check_database_status(
 
         # Database size information
         with db_manager.get_direct_connection() as conn:
-            size_result = conn.execute(
-                "SELECT pg_size_pretty(pg_database_size(%s)) as db_size", (db,)
-            )
+            size_result = conn.execute("SELECT pg_size_pretty(pg_database_size(%s)) as db_size", (db,))
             size_row = size_result.fetchone()
             if size_row:
                 db_size = size_row[0]
@@ -1390,29 +1343,17 @@ def check_database_status(
         # Format non-None settings for display
         settings_lines = []
         if rag_settings["enable_refinement"] is not None:
-            settings_lines.append(
-                f"  enable_refinement         : {rag_settings['enable_refinement']}"
-            )
+            settings_lines.append(f"  enable_refinement         : {rag_settings['enable_refinement']}")
         if rag_settings["enable_reranking"] is not None:
-            settings_lines.append(
-                f"  enable_reranking          : {rag_settings['enable_reranking']}"
-            )
+            settings_lines.append(f"  enable_reranking          : {rag_settings['enable_reranking']}")
         if rag_settings["similarity_threshold"] is not None:
-            settings_lines.append(
-                f"  similarity_threshold      : {rag_settings['similarity_threshold']}"
-            )
+            settings_lines.append(f"  similarity_threshold      : {rag_settings['similarity_threshold']}")
         if rag_settings["max_chunks"] is not None:
-            settings_lines.append(
-                f"  max_chunks                : {rag_settings['max_chunks']}"
-            )
+            settings_lines.append(f"  max_chunks                : {rag_settings['max_chunks']}")
         if rag_settings["max_tokens_in_context"] is not None:
-            settings_lines.append(
-                f"  max_tokens_in_context     : {rag_settings['max_tokens_in_context']}"
-            )
+            settings_lines.append(f"  max_tokens_in_context     : {rag_settings['max_tokens_in_context']}")
         if rag_settings["refinement_questions_count"] is not None:
-            settings_lines.append(
-                f"  refinement_questions_count: {rag_settings['refinement_questions_count']}"
-            )
+            settings_lines.append(f"  refinement_questions_count: {rag_settings['refinement_questions_count']}")
         if rag_settings["refinement_prompt"] is not None:
             # Truncate prompt if too long
             prompt_preview = rag_settings["refinement_prompt"][:100]
@@ -1426,9 +1367,7 @@ def check_database_status(
     logger.info("Database status check complete")
 
 
-def load_files(
-    content_dir: Path, model: str, pattern: str, force: bool
-) -> list[tuple[Path, Path]]:
+def load_files(content_dir: Path, model: str, pattern: str, force: bool) -> list[tuple[Path, Path]]:
     """Find source files and their corresponding embedding files for loading.
 
     looks for .../doc_dir/source.json files and their
@@ -1456,9 +1395,7 @@ def load_files(
     return valid_pairs
 
 
-def _ensure_database_exists(
-    host: str, port: int, db: str, user: str, password: str
-) -> None:
+def _ensure_database_exists(host: str, port: int, db: str, user: str, password: str) -> None:
     """Ensure the target database exists, create it if it doesn't."""
 
     # Connect to the default postgres database to check/create our target database
@@ -1489,7 +1426,7 @@ def _ensure_database_exists(
 
 
 def load_batch_worker(
-    file_batch: List[str],
+    file_batch: list[str],
     model: str,
     content_dir: str,
     db_host: str,
@@ -1498,7 +1435,7 @@ def load_batch_worker(
     db_user: str,
     db_password: str,
     force: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Worker function for multiprocessing database loading.
 
     Args:
@@ -1564,7 +1501,7 @@ def load_batch_worker(
 
 
 def _load_batch(
-    file_paths: List[Path],
+    file_paths: list[Path],
     model: str,
     content_dir: Path,
     db_host: str,
@@ -1573,7 +1510,7 @@ def _load_batch(
     db_user: str,
     db_password: str,
     force: bool,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Load a batch of files in a worker process."""
 
     # Create database manager
@@ -1600,16 +1537,18 @@ def _load_batch(
                 continue
 
             # Load embedding data
-            with open(embedding_file, "r", encoding="utf-8") as f:
+            with open(embedding_file, encoding="utf-8") as f:
                 embedding_data = json.load(f)
 
-            files_data.append((
-                source_file,
-                chunks_file,
-                model,
-                embedding_data,
-                embedding_file,
-            ))
+            files_data.append(
+                (
+                    source_file,
+                    chunks_file,
+                    model,
+                    embedding_data,
+                    embedding_file,
+                )
+            )
 
         except Exception as e:
             logger.error(f"Failed to prepare {source_file.name}: {e}")
@@ -1627,17 +1566,17 @@ def load_documents(
     content_dir: str | None = None,
     model: str | None = None,
     pattern: str | None = None,
-    host: Optional[str] = None,
-    port: Optional[int] = None,
-    db: Optional[str] = None,
-    user: Optional[str] = None,
-    password: Optional[str] = None,
+    host: str | None = None,
+    port: int | None = None,
+    db: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
     force: bool = False,
     batch_size: int = 100,
     username: str = "",
-    title: Optional[str] = None,
-    description: Optional[str] = None,
-    note: Optional[str] = None,
+    title: str | None = None,
+    description: str | None = None,
+    note: str | None = None,
 ) -> bool:
     """Load documents and embeddings in the PostgreSQL database.
 
@@ -1721,9 +1660,7 @@ def load_documents(
         result = conn.execute("SELECT title FROM schema_metadata WHERE id = 1")
         row = result.fetchone()
         metadata_exists = row is not None
-        metadata_configured = (
-            metadata_exists and row[0] is not None
-        )  # Has title been set?
+        metadata_configured = metadata_exists and row[0] is not None  # Has title been set?
 
         if metadata_configured:
             # Update existing, configured metadata
@@ -1819,9 +1756,7 @@ def load_documents(
             )
 
             # Build note for this operation
-            operation_note = (
-                note if note else f"Loaded {loaded} files with model {model}"
-            )
+            operation_note = note if note else f"Loaded {loaded} files with model {model}"
             if errors > 0:
                 operation_note += f" ({errors} errors)"
 
@@ -1868,11 +1803,11 @@ def load_documents(
 
 def dump_database(
     output_file: str,
-    host: Optional[str] = None,
-    port: Optional[int] = None,
-    db: Optional[str] = None,
-    user: Optional[str] = None,
-    password: Optional[str] = None,
+    host: str | None = None,
+    port: int | None = None,
+    db: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
     verbose: bool = False,
 ) -> bool:
     """Create a PostgreSQL dump file of the database.
@@ -1950,22 +1885,18 @@ def dump_database(
         logger.error(f"pg_dump failed with exit code {e.returncode}")
         if e.stderr:
             logger.error(f"Error: {e.stderr}")
-        raise DatabaseError(
-            f"Database dump failed with exit code {e.returncode}"
-        ) from e
+        raise DatabaseError(f"Database dump failed with exit code {e.returncode}") from e
     except FileNotFoundError as e:
-        raise ConfigurationError(
-            "pg_dump command not found. Please install PostgreSQL client tools."
-        ) from e
+        raise ConfigurationError("pg_dump command not found. Please install PostgreSQL client tools.") from e
 
 
 def restore_database(
     input_file: str,
-    host: Optional[str] = None,
-    port: Optional[int] = None,
-    db: Optional[str] = None,
-    user: Optional[str] = None,
-    password: Optional[str] = None,
+    host: str | None = None,
+    port: int | None = None,
+    db: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
     verbose: bool = False,
 ) -> bool:
     """Restore a PostgreSQL database from a dump file.
@@ -2038,22 +1969,18 @@ def restore_database(
         logger.error(f"psql failed with exit code {e.returncode}")
         if e.stderr:
             logger.error(f"Error: {e.stderr}")
-        raise DatabaseError(
-            f"Database restore failed with exit code {e.returncode}"
-        ) from e
+        raise DatabaseError(f"Database restore failed with exit code {e.returncode}") from e
     except FileNotFoundError as e:
-        raise ConfigurationError(
-            "psql command not found. Please install PostgreSQL client tools."
-        ) from e
+        raise ConfigurationError("psql command not found. Please install PostgreSQL client tools.") from e
 
 
 def generate_manifest(
     output_file: str = "manifest.txt",
-    host: Optional[str] = None,
-    port: Optional[int] = None,
-    db: Optional[str] = None,
-    user: Optional[str] = None,
-    password: Optional[str] = None,
+    host: str | None = None,
+    port: int | None = None,
+    db: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
 ) -> bool:
     """Generate a manifest file with all unique source files in the database.
 
@@ -2087,18 +2014,18 @@ def generate_manifest(
 
 
 def configure_rag_settings(
-    refinement_prompt: Optional[str] = None,
-    refinement: Optional[str] = None,
-    reranking: Optional[str] = None,
-    similarity_threshold: Optional[str] = None,
-    max_chunks: Optional[str] = None,
-    max_tokens_in_context: Optional[str] = None,
-    refinement_questions_count: Optional[str] = None,
-    host: Optional[str] = None,
-    port: Optional[int] = None,
-    db: Optional[str] = None,
-    user: Optional[str] = None,
-    password: Optional[str] = None,
+    refinement_prompt: str | None = None,
+    refinement: str | None = None,
+    reranking: str | None = None,
+    similarity_threshold: str | None = None,
+    max_chunks: str | None = None,
+    max_tokens_in_context: str | None = None,
+    refinement_questions_count: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    db: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
 ) -> None:
     """Configure RAG settings in the database.
 
@@ -2152,9 +2079,7 @@ def configure_rag_settings(
         try:
             return type_func(value), False
         except ValueError:
-            raise ConfigurationError(
-                f"{name}: must be a number or 'None', got '{value}'"
-            )
+            raise ConfigurationError(f"{name}: must be a number or 'None', got '{value}'")
 
     # Parse refinement_prompt (string)
     if refinement_prompt is not None:
@@ -2193,9 +2118,7 @@ def configure_rag_settings(
         clear_flags["max_tokens_in_context"] = clear
 
     if refinement_questions_count is not None:
-        val, clear = parse_number(
-            refinement_questions_count, "--refinement-questions-count", int
-        )
+        val, clear = parse_number(refinement_questions_count, "--refinement-questions-count", int)
         parsed_values["refinement_questions_count"] = val
         clear_flags["refinement_questions_count"] = clear
 
@@ -2211,9 +2134,7 @@ def configure_rag_settings(
     db_user = user if user is not None else config["user"]
     db_password = password if password is not None else config["password"]
 
-    logger.info(
-        f"Updating RAG settings in database: {db_user}@{db_host}:{db_port}/{db_name}"
-    )
+    logger.info(f"Updating RAG settings in database: {db_user}@{db_host}:{db_port}/{db_name}")
 
     # Create database manager
     db_manager = DatabaseManager(
@@ -2240,9 +2161,7 @@ def configure_rag_settings(
         _clear_similarity_threshold=clear_flags.get("similarity_threshold", False),
         _clear_max_chunks=clear_flags.get("max_chunks", False),
         _clear_max_tokens_in_context=clear_flags.get("max_tokens_in_context", False),
-        _clear_refinement_questions_count=clear_flags.get(
-            "refinement_questions_count", False
-        ),
+        _clear_refinement_questions_count=clear_flags.get("refinement_questions_count", False),
     )
 
     logger.info("✅ RAG settings updated successfully")

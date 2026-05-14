@@ -4,13 +4,17 @@ import os
 import signal
 import subprocess
 import time
+
 from pathlib import Path
 
 import structlog
 import xxhash
-from transformers import AutoModel, AutoTokenizer
+
+from transformers import AutoModel
+from transformers import AutoTokenizer
 
 from docs2db.exceptions import ConfigurationError
+
 
 logger = structlog.get_logger(__name__)
 
@@ -54,9 +58,7 @@ def ensure_model_available(model_id: str) -> None:
             AutoTokenizer.from_pretrained(model_id, local_files_only=True)
         except Exception as download_error:
             logger.error(f"Failed to download {model_id}: {download_error}")
-            raise ConfigurationError(
-                f"Failed to download model {model_id}: {download_error}"
-            ) from download_error
+            raise ConfigurationError(f"Failed to download model {model_id}: {download_error}") from download_error
 
 
 def cleanup_orphaned_workers() -> bool:
@@ -69,9 +71,7 @@ def cleanup_orphaned_workers() -> bool:
         ConfigurationError: If system commands are not available
     """
     try:
-        result = subprocess.run(
-            ["ps", "aux"], capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(["ps", "aux"], capture_output=True, text=True, check=True)
 
         orphaned_processes = []
         current_pid = os.getpid()
@@ -134,9 +134,7 @@ def cleanup_orphaned_workers() -> bool:
                 pass
 
         # Step 4: SIGKILL any remaining processes
-        killed_count = len(pids_to_kill) - len(
-            still_alive
-        )  # Processes that responded to SIGTERM
+        killed_count = len(pids_to_kill) - len(still_alive)  # Processes that responded to SIGTERM
 
         if still_alive:
             logger.info(f"Force-killing {len(still_alive)} unresponsive processes...")
