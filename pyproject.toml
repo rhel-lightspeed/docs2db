@@ -29,13 +29,13 @@ classifiers = [
     "Topic :: Text Processing :: General",
 ]
 dependencies = [
-    "cachetools>=7.1.0",
-    "docling>=2.92.0",
+    "cachetools>=7.1.1",
+    "docling>=2.93.0",
     "httpx>=0.28.1",
     "pgvector>=0.4.2",
     "psycopg[binary]>=3.3.4",
     "psycopg-pool>=3.3.1",
-    "pydantic-settings>=2.14.0",
+    "pydantic-settings>=2.14.1",
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
     "structlog>=25.5.0",
@@ -75,7 +75,7 @@ explicit = true
 
 [dependency-groups]
 dev = [
-    "datamodel-code-generator>=0.56.1",
+    "datamodel-code-generator>=0.57.0",
     "ipython>=9.13.0",
     "pre-commit>=4.6.0",
     "pyright>=1.1.409",
@@ -87,8 +87,8 @@ dev = [
     "python-gitlab>=8.3.0",
     "ruff>=0.15.12",
     "tox>=4.53.1",
-    "types-cachetools>=6.2.0.20260408",
-    "types-tqdm>=4.67.3.20260408",
+    "types-cachetools>=7.0.0.20260503",
+    "types-tqdm>=4.67.3.20260508",
 ]
 
 [tool.pytest.ini_options]
