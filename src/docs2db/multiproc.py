@@ -250,38 +250,39 @@ class BatchProcessor:
 
         saved_config = structlog.get_config()
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(bar_width=None),
-            TextColumn("{task.percentage:>3.0f}%"),
-            TextColumn("{task.completed:>6}/{task.total:<6}"),
-            TextColumn("err:{task.fields[errors]:>6}"),
-            TimeRemainingColumn(),
-            console=self.console,
-            expand=True,
-        ) as progress:
-            task = progress.add_task(
-                self.progress_message,
-                total=count,
-                completed=0,
-                errors=0,
-            )
-
-            for batch in batches:
-                result = self.worker_function(batch, *self.worker_args)
-
-                self.processed += len(batch)
-                self.errors += result["errors"]
-                self.error_data.extend(result["error_data"])
-
-                progress.update(
-                    task,
-                    completed=self.processed,
-                    errors=self.errors,
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[bold blue]{task.description}"),
+                BarColumn(bar_width=None),
+                TextColumn("{task.percentage:>3.0f}%"),
+                TextColumn("{task.completed:>6}/{task.total:<6}"),
+                TextColumn("err:{task.fields[errors]:>6}"),
+                TimeRemainingColumn(),
+                console=self.console,
+                expand=True,
+            ) as progress:
+                task = progress.add_task(
+                    self.progress_message,
+                    total=count,
+                    completed=0,
+                    errors=0,
                 )
 
-        structlog.configure(**saved_config)
+                for batch in batches:
+                    result = self.worker_function(batch, *self.worker_args)
+
+                    self.processed += len(batch)
+                    self.errors += result["errors"]
+                    self.error_data.extend(result["error_data"])
+
+                    progress.update(
+                        task,
+                        completed=self.processed,
+                        errors=self.errors,
+                    )
+        finally:
+            structlog.configure(**saved_config)
 
         self._display_errors()
         return self.processed, self.errors

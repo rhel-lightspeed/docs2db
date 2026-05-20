@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SECURITY.md vulnerability disclosure policy
 
 ### Fixed
-- Fixed structlog config corruption after single-threaded `load` — worker logging setup now saves and restores the main process config
+- Fixed structlog config corruption after single-threaded `load` — worker logging setup now saves and restores the main process config, even when a batch raises
 - Fixed document path mismatch in up-to-date check — skip-check now uses relative paths matching DB storage, preventing unnecessary re-processing
 - Added per-document savepoint isolation in batch loading — one failed document no longer aborts the entire batch transaction
 - Fixed `test_load_documents_force_parameter` — test now uses correct fixture layout and exercises both force=False (skip) and force=True (reload) paths
