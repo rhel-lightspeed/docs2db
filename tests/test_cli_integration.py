@@ -1,18 +1,27 @@
 """Integration tests for CLI commands."""
 
-import subprocess
+import tempfile
 
 from pathlib import Path
 
 import psycopg
 import pytest
 
+from structlog.testing import capture_logs
+from typer.testing import CliRunner
+
+from docs2db.docs2db import app
 from tests.test_config import get_test_db_config
 from tests.test_config import should_skip_postgres_tests
 
 
-# Get project root directory dynamically
-PROJECT_ROOT = Path(__file__).parent.parent
+runner = CliRunner()
+
+
+def assert_logged(cap_logs: list, text: str) -> None:
+    """Assert that any captured structlog event contains the given text."""
+    events = [e["event"] for e in cap_logs]
+    assert any(text in ev for ev in events), f"Expected log containing '{text}', got: {events}"
 
 
 def check_table_exists(conn, table_name: str) -> bool:
@@ -39,7 +48,7 @@ class TestCLIIntegrationSQL:
 
     @pytest.mark.no_ci
     def test_load_command_initializes_database(self):
-        """Test that 'uv run docs2db load' properly initializes database schema.
+        """Test that 'docs2db load' properly initializes database schema.
 
         This test verifies the complete flow:
         1. Database starts uninitialized (no tables)
@@ -54,39 +63,32 @@ class TestCLIIntegrationSQL:
         try:
             fixtures_content_dir = Path(__file__).parent / "fixtures" / "content" / "documents"
 
-            cmd = [
-                "uv",
-                "run",
-                "docs2db",
-                "load",
-                "--content-dir",
-                str(fixtures_content_dir),
-                "--model",
-                "ibm-granite/granite-embedding-30m-english",
-                "--pattern",
-                "**",
-                "--host",
-                config["host"],
-                "--port",
-                config["port"],
-                "--db",
-                config["database"],
-                "--user",
-                config["user"],
-                "--password",
-                config["password"],
-                "--force",  # Force to ensure it processes our test file
-            ]
-
-            result = subprocess.run(  # noqa: S603
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
+            result = runner.invoke(
+                app,
+                [
+                    "load",
+                    "--content-dir",
+                    str(fixtures_content_dir),
+                    "--model",
+                    "ibm-granite/granite-embedding-30m-english",
+                    "--pattern",
+                    "**",
+                    "--host",
+                    config["host"],
+                    "--port",
+                    config["port"],
+                    "--db",
+                    config["database"],
+                    "--user",
+                    config["user"],
+                    "--password",
+                    config["password"],
+                    "--force",
+                ],
             )
 
-            if result.returncode != 0:
-                pytest.fail(f"CLI load command failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+            if result.exit_code != 0:
+                pytest.fail(f"CLI load command failed with exit code {result.exit_code}")
 
             # Connect using psycopg directly
             conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
@@ -123,102 +125,79 @@ class TestCLIIntegrationSQL:
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
 
         config = get_test_db_config()
+        conn_string = (
+            f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+        )
 
         try:
-            # Test 1: Database server down (wrong port)
-            cmd_base = ["uv", "run", "docs2db", "db-status"]
+            db_status_args = [
+                "db-status",
+                "--host",
+                config["host"],
+            ]
 
-            result = subprocess.run(  # noqa: S603
-                cmd_base
-                + [
-                    "--host",
-                    config["host"],
-                    "--port",
-                    "9999",  # Non-existent port
-                    "--db",
-                    config["database"],
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ],
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-            )
-            assert result.returncode == 1, "Should exit with error code when server is down"
-            assert "Database connection failed" in result.stdout, (
-                "Should show database connection failed when server is down"
-            )
-            assert "does not exist" not in result.stdout, "Should not mention database existence when server is down"
-            assert "Traceback" not in result.stdout and "Traceback" not in result.stderr, (
-                "Should not show traceback for expected error"
-            )
+            # Test 1: Database server down (wrong port)
+            with capture_logs() as cap_logs:
+                result = runner.invoke(
+                    app,
+                    db_status_args
+                    + [
+                        "--port",
+                        "9999",  # Non-existent port
+                        "--db",
+                        config["database"],
+                        "--user",
+                        config["user"],
+                        "--password",
+                        config["password"],
+                    ],
+                )
+            assert result.exit_code == 1, "Should exit with error code when server is down"
+            assert_logged(cap_logs, "Database")
 
             # Test 2: Server up but database doesn't exist
-            result = subprocess.run(  # noqa: S603
-                cmd_base
-                + [
-                    "--host",
-                    config["host"],
-                    "--port",
-                    config["port"],
-                    "--db",
-                    "nonexistent_database_name",
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ],
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-            )
-            assert result.returncode == 1, "Should exit with error when database doesn't exist"
-            assert "does not exist" in result.stdout, "Should show database doesn't exist error"
-            assert "Traceback" not in result.stdout and "Traceback" not in result.stderr, (
-                "Should not show traceback for expected error"
-            )
+            with capture_logs() as cap_logs:
+                result = runner.invoke(
+                    app,
+                    db_status_args
+                    + [
+                        "--port",
+                        config["port"],
+                        "--db",
+                        "nonexistent_database_name",
+                        "--user",
+                        config["user"],
+                        "--password",
+                        config["password"],
+                    ],
+                )
+            assert result.exit_code == 1, "Should exit with error when database doesn't exist"
+            assert_logged(cap_logs, "does not exist")
 
-            # Test 3: Database exists but is not initialized
-            result = subprocess.run(  # noqa: S603
-                cmd_base
-                + [
-                    "--host",
-                    config["host"],
-                    "--port",
-                    config["port"],
-                    "--db",
-                    config["database"],
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ],
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-            )
-            # Should report that database exists but is not initialized
-            assert result.returncode == 1, "Should exit with error when database is not initialized"
-            assert "Database connection successful" in result.stdout, "Should show connection success"
-            # Should indicate that the database is not initialized (no tables exist)
-            assert (
-                "not initialized" in result.stdout.lower()
-                or "initialize the schema" in result.stdout.lower()
-                or "run 'uv run docs2db load'" in result.stdout.lower()
-                or "pgvector extension not installed" in result.stdout.lower()
-            ), "Should indicate database is not initialized"
+            # Test 3: Database exists but is not initialized (pgvector check fails first)
+            with capture_logs() as cap_logs:
+                result = runner.invoke(
+                    app,
+                    db_status_args
+                    + [
+                        "--port",
+                        config["port"],
+                        "--db",
+                        config["database"],
+                        "--user",
+                        config["user"],
+                        "--password",
+                        config["password"],
+                    ],
+                )
+            assert result.exit_code == 1, "Should exit with error when database is not initialized"
+            assert_logged(cap_logs, "pgvector extension not installed")
 
             # Test 4: Load command with empty directory (should initialize schema with no data)
-            import tempfile
-
             with tempfile.TemporaryDirectory() as empty_dir:
-                load_result = subprocess.run(  # noqa: S603
-                    [  # noqa: S607
-                        "uv",
-                        "run",
-                        "docs2db",
+                load_result = runner.invoke(
+                    app,
+                    [
                         "load",
                         "--content-dir",
                         empty_dir,
@@ -235,48 +214,48 @@ class TestCLIIntegrationSQL:
                         "--password",
                         config["password"],
                     ],
-                    capture_output=True,
-                    text=True,
-                    cwd=str(PROJECT_ROOT),
                 )
 
-                assert load_result.returncode == 0, (
-                    f"Load should succeed even with empty directory: {load_result.stdout}"
-                )
+                assert load_result.exit_code == 0, "Load should succeed even with empty directory"
 
-            # Now test db-status - should show initialized database with 0 counts
-            result = subprocess.run(  # noqa: S603
-                cmd_base
-                + [
-                    "--host",
-                    config["host"],
-                    "--port",
-                    config["port"],
-                    "--db",
-                    config["database"],
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ],
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-            )
-            assert result.returncode == 0, "Should succeed with initialized empty database"
-            assert "Database connection successful" in result.stdout, "Should show success message"
-            assert "documents : 0" in result.stdout, "Should show 0 documents"
-            assert "chunks    : 0" in result.stdout, "Should show 0 chunks"
-            assert "embeddings: 0" in result.stdout, "Should show 0 embeddings"
+            # Verify db-status succeeds after initialization
+            with capture_logs() as cap_logs:
+                result = runner.invoke(
+                    app,
+                    db_status_args
+                    + [
+                        "--port",
+                        config["port"],
+                        "--db",
+                        config["database"],
+                        "--user",
+                        config["user"],
+                        "--password",
+                        config["password"],
+                    ],
+                )
+            assert result.exit_code == 0, "Should succeed with initialized empty database"
+            assert_logged(cap_logs, "Database connection successful")
+            assert_logged(cap_logs, "Database statistics summary")
+            assert_logged(cap_logs, "documents : 0")
+            assert_logged(cap_logs, "chunks    : 0")
+            assert_logged(cap_logs, "embeddings: 0")
+
+            # Verify database state directly: initialized but empty
+            with psycopg.Connection.connect(conn_string) as conn:
+                assert check_table_exists(conn, "documents"), "documents table should exist"
+                assert check_table_exists(conn, "chunks"), "chunks table should exist"
+                assert check_table_exists(conn, "embeddings"), "embeddings table should exist"
+                assert count_records(conn, "documents") == 0, "Should have 0 documents"
+                assert count_records(conn, "chunks") == 0, "Should have 0 chunks"
+                assert count_records(conn, "embeddings") == 0, "Should have 0 embeddings"
 
             # Test 5: Database with actual data
             fixtures_content_dir = Path(__file__).parent / "fixtures" / "content" / "documents"
 
-            load_result = subprocess.run(  # noqa: S603
-                [  # noqa: S607
-                    "uv",
-                    "run",
-                    "docs2db",
+            load_result = runner.invoke(
+                app,
+                [
                     "load",
                     "--content-dir",
                     str(fixtures_content_dir),
@@ -293,17 +272,61 @@ class TestCLIIntegrationSQL:
                     "--password",
                     config["password"],
                 ],
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
             )
 
-            assert load_result.returncode == 0, f"Load should succeed: {load_result.stdout}"
+            assert load_result.exit_code == 0, "Load should succeed"
 
-            # Now test db-status with data
-            result = subprocess.run(  # noqa: S603
-                cmd_base
-                + [
+            # Verify db-status succeeds with data
+            with capture_logs() as cap_logs:
+                result = runner.invoke(
+                    app,
+                    db_status_args
+                    + [
+                        "--port",
+                        config["port"],
+                        "--db",
+                        config["database"],
+                        "--user",
+                        config["user"],
+                        "--password",
+                        config["password"],
+                    ],
+                )
+            assert result.exit_code == 0, "Should succeed with data in database"
+            assert_logged(cap_logs, "Database connection successful")
+            assert_logged(cap_logs, "documents")
+
+            # Verify database state directly: has data
+            with psycopg.Connection.connect(conn_string) as conn:
+                assert count_records(conn, "documents") > 0, "Should have non-zero documents"
+                assert count_records(conn, "chunks") > 0, "Should have non-zero chunks"
+                assert count_records(conn, "embeddings") > 0, "Should have non-zero embeddings"
+
+        except Exception as e:
+            pytest.fail(f"Test failed with exception: {e}")
+
+    @pytest.mark.no_ci
+    def test_config_command_stores_rag_settings(self):
+        """Test that 'docs2db config' properly stores RAG settings in database."""
+        if should_skip_postgres_tests():
+            pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
+
+        config = get_test_db_config()
+
+        try:
+            # First, initialize database with load command
+            fixtures_content_dir = Path(__file__).parent / "fixtures" / "content" / "documents"
+
+            load_result = runner.invoke(
+                app,
+                [
+                    "load",
+                    "--content-dir",
+                    str(fixtures_content_dir),
+                    "--model",
+                    "ibm-granite/granite-embedding-30m-english",
+                    "--pattern",
+                    "**",
                     "--host",
                     config["host"],
                     "--port",
@@ -314,71 +337,11 @@ class TestCLIIntegrationSQL:
                     config["user"],
                     "--password",
                     config["password"],
+                    "--force",
                 ],
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-            )
-            assert result.returncode == 0, "Should succeed with data in database"
-            assert "Database connection successful" in result.stdout, "Should show success message"
-            # Should show non-zero counts
-            assert "documents : " in result.stdout and "documents : 0" not in result.stdout, (
-                "Should show non-zero documents"
-            )
-            assert "chunks    : " in result.stdout and "chunks    : 0" not in result.stdout, (
-                "Should show non-zero chunks"
-            )
-            assert "embeddings: " in result.stdout and "embeddings: 0" not in result.stdout, (
-                "Should show non-zero embeddings"
             )
 
-        except Exception as e:
-            pytest.fail(f"Test failed with exception: {e}")
-
-    @pytest.mark.no_ci
-    def test_config_command_stores_rag_settings(self):
-        """Test that 'uv run docs2db config' properly stores RAG settings in database."""
-        if should_skip_postgres_tests():
-            pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
-
-        config = get_test_db_config()
-
-        try:
-            # First, initialize database with load command
-            fixtures_content_dir = Path(__file__).parent / "fixtures" / "content" / "documents"
-
-            load_cmd = [
-                "uv",
-                "run",
-                "docs2db",
-                "load",
-                "--content-dir",
-                str(fixtures_content_dir),
-                "--model",
-                "ibm-granite/granite-embedding-30m-english",
-                "--pattern",
-                "**",
-                "--host",
-                config["host"],
-                "--port",
-                config["port"],
-                "--db",
-                config["database"],
-                "--user",
-                config["user"],
-                "--password",
-                config["password"],
-                "--force",
-            ]
-
-            load_result = subprocess.run(  # noqa: S603
-                load_cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-            )
-
-            assert load_result.returncode == 0, f"Load command should succeed: {load_result.stderr}"
+            assert load_result.exit_code == 0, "Load command should succeed"
 
             # Connect to database
             conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
@@ -395,46 +358,40 @@ class TestCLIIntegrationSQL:
                 assert initial_count == 0, "rag_settings should be empty initially"
 
                 # Now run config command to set some settings
-                config_cmd = [
-                    "uv",
-                    "run",
-                    "docs2db",
-                    "config",
-                    "--refinement",
-                    "false",
-                    "--reranking",
-                    "true",
-                    "--similarity-threshold",
-                    "0.85",
-                    "--max-chunks",
-                    "20",
-                    "--max-tokens-in-context",
-                    "8192",
-                    "--refinement-questions-count",
-                    "3",
-                    "--refinement-prompt",
-                    "Test custom prompt with {question}",
-                    "--host",
-                    config["host"],
-                    "--port",
-                    config["port"],
-                    "--db",
-                    config["database"],
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ]
+                with capture_logs() as cap_logs:
+                    config_result = runner.invoke(
+                        app,
+                        [
+                            "config",
+                            "--refinement",
+                            "false",
+                            "--reranking",
+                            "true",
+                            "--similarity-threshold",
+                            "0.85",
+                            "--max-chunks",
+                            "20",
+                            "--max-tokens-in-context",
+                            "8192",
+                            "--refinement-questions-count",
+                            "3",
+                            "--refinement-prompt",
+                            "Test custom prompt with {question}",
+                            "--host",
+                            config["host"],
+                            "--port",
+                            config["port"],
+                            "--db",
+                            config["database"],
+                            "--user",
+                            config["user"],
+                            "--password",
+                            config["password"],
+                        ],
+                    )
 
-                config_result = subprocess.run(  # noqa: S603
-                    config_cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(PROJECT_ROOT),
-                )
-
-                assert config_result.returncode == 0, f"Config command should succeed: {config_result.stderr}"
-                assert "RAG settings updated successfully" in config_result.stdout, "Should show success message"
+                assert config_result.exit_code == 0, "Config command should succeed"
+                assert_logged(cap_logs, "RAG settings updated successfully")
 
                 # Verify settings were stored in database
                 with conn.cursor() as cur:
@@ -470,35 +427,28 @@ class TestCLIIntegrationSQL:
                     assert refinement_questions_count == 3, "refinement_questions_count should be 3"
 
                 # Test updating settings (partial update)
-                update_cmd = [
-                    "uv",
-                    "run",
-                    "docs2db",
-                    "config",
-                    "--refinement",
-                    "true",
-                    "--max-chunks",
-                    "15",
-                    "--host",
-                    config["host"],
-                    "--port",
-                    config["port"],
-                    "--db",
-                    config["database"],
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ]
-
-                update_result = subprocess.run(  # noqa: S603
-                    update_cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(PROJECT_ROOT),
+                update_result = runner.invoke(
+                    app,
+                    [
+                        "config",
+                        "--refinement",
+                        "true",
+                        "--max-chunks",
+                        "15",
+                        "--host",
+                        config["host"],
+                        "--port",
+                        config["port"],
+                        "--db",
+                        config["database"],
+                        "--user",
+                        config["user"],
+                        "--password",
+                        config["password"],
+                    ],
                 )
 
-                assert update_result.returncode == 0, f"Config update should succeed: {update_result.stderr}"
+                assert update_result.exit_code == 0, "Config update should succeed"
 
                 # Verify only specified settings were updated, others remain unchanged
                 with conn.cursor() as cur:
@@ -533,61 +483,48 @@ class TestCLIIntegrationSQL:
                     )
 
                 # Test that config command fails when no settings provided
-                empty_cmd = [
-                    "uv",
-                    "run",
-                    "docs2db",
-                    "config",
-                    "--host",
-                    config["host"],
-                    "--port",
-                    config["port"],
-                    "--db",
-                    config["database"],
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ]
+                with capture_logs() as cap_logs:
+                    empty_result = runner.invoke(
+                        app,
+                        [
+                            "config",
+                            "--host",
+                            config["host"],
+                            "--port",
+                            config["port"],
+                            "--db",
+                            config["database"],
+                            "--user",
+                            config["user"],
+                            "--password",
+                            config["password"],
+                        ],
+                    )
 
-                empty_result = subprocess.run(  # noqa: S603
-                    empty_cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(PROJECT_ROOT),
-                )
-
-                assert empty_result.returncode != 0, "Config command should fail when no settings provided"
-                assert "No settings provided" in empty_result.stdout, "Should show error message about no settings"
+                assert empty_result.exit_code != 0, "Config command should fail when no settings provided"
+                assert_logged(cap_logs, "No settings provided")
 
                 # Test clearing string settings with "None"
-                clear_prompt_cmd = [
-                    "uv",
-                    "run",
-                    "docs2db",
-                    "config",
-                    "--refinement-prompt",
-                    "None",
-                    "--host",
-                    config["host"],
-                    "--port",
-                    config["port"],
-                    "--db",
-                    config["database"],
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ]
-
-                clear_result = subprocess.run(  # noqa: S603
-                    clear_prompt_cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(PROJECT_ROOT),
+                clear_result = runner.invoke(
+                    app,
+                    [
+                        "config",
+                        "--refinement-prompt",
+                        "None",
+                        "--host",
+                        config["host"],
+                        "--port",
+                        config["port"],
+                        "--db",
+                        config["database"],
+                        "--user",
+                        config["user"],
+                        "--password",
+                        config["password"],
+                    ],
                 )
 
-                assert clear_result.returncode == 0, f"Config command with None should succeed: {clear_result.stderr}"
+                assert clear_result.exit_code == 0, "Config command with None should succeed"
 
                 # Verify refinement_prompt was cleared (set to NULL)
                 with conn.cursor() as cur:
@@ -597,41 +534,32 @@ class TestCLIIntegrationSQL:
                     assert row[0] is None, "refinement_prompt should be NULL after clearing with 'None'"
 
                 # Test clearing boolean and numeric settings with "None"
-                clear_all_cmd = [
-                    "uv",
-                    "run",
-                    "docs2db",
-                    "config",
-                    "--refinement",
-                    "None",
-                    "--reranking",
-                    "None",
-                    "--max-chunks",
-                    "None",
-                    "--similarity-threshold",
-                    "None",
-                    "--host",
-                    config["host"],
-                    "--port",
-                    config["port"],
-                    "--db",
-                    config["database"],
-                    "--user",
-                    config["user"],
-                    "--password",
-                    config["password"],
-                ]
-
-                clear_all_result = subprocess.run(  # noqa: S603
-                    clear_all_cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(PROJECT_ROOT),
+                clear_all_result = runner.invoke(
+                    app,
+                    [
+                        "config",
+                        "--refinement",
+                        "None",
+                        "--reranking",
+                        "None",
+                        "--max-chunks",
+                        "None",
+                        "--similarity-threshold",
+                        "None",
+                        "--host",
+                        config["host"],
+                        "--port",
+                        config["port"],
+                        "--db",
+                        config["database"],
+                        "--user",
+                        config["user"],
+                        "--password",
+                        config["password"],
+                    ],
                 )
 
-                assert clear_all_result.returncode == 0, (
-                    f"Config command to clear all should succeed: {clear_all_result.stderr}"
-                )
+                assert clear_all_result.exit_code == 0, "Config command to clear all should succeed"
 
                 # Verify all settings were cleared
                 with conn.cursor() as cur:

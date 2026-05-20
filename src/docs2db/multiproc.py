@@ -248,6 +248,8 @@ class BatchProcessor:
 
         batches = list(batch_generator(to_process, self.batch_size))
 
+        saved_config = structlog.get_config()
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]{task.description}"),
@@ -278,6 +280,8 @@ class BatchProcessor:
                     completed=self.processed,
                     errors=self.errors,
                 )
+
+        structlog.configure(**saved_config)
 
         self._display_errors()
         return self.processed, self.errors
