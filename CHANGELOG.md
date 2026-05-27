@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `test_load_documents_parameter_validation` — removed broad exception swallowing that masked real failures
 - Fixed `test_database_functions_interface` — removed vacuous assertion (check_database_status returns None by contract)
 
+### Removed
+- Removed unimplemented embedding provider stubs (Watson/Slate, SentenceTransformer, NoInstruct, E5) — only Granite was functional
+
 ### Changed
 - Added `lint`, `format`, `typecheck`, and `clean` targets to Makefile
 - Narrowed broad `except Exception` clauses in `database.py` to specific types (`psycopg.Error`, `psycopg.errors.UndefinedTable`, `yaml.YAMLError`) and removed unnecessary try/except blocks

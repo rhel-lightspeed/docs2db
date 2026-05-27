@@ -361,66 +361,12 @@ class GraniteEmbeddingProvider(EmbeddingProvider):
         return all_embeddings
 
 
-class WatsonEmbeddingProvider(EmbeddingProvider):
-    """Watson embedding provider - placeholder for now."""
-
-    def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings using Watson."""
-        # TODO: Implement based on existing WatsonEmbeddingProvider
-        raise NotImplementedError("Watson provider implementation needed")
-
-
-class SentenceTransformerProvider(EmbeddingProvider):
-    """Sentence Transformers provider - placeholder for now."""
-
-    def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings using Sentence Transformers."""
-        # TODO: Implement based on existing SentenceTransformerProvider
-        raise NotImplementedError("Sentence Transformers provider implementation needed")
-
-
-class NoInstructEmbeddingProvider(EmbeddingProvider):
-    """NoInstruct embedding provider - placeholder for now."""
-
-    def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings using NoInstruct model."""
-        # TODO: Implement based on existing NoInstructEmbeddingProvider
-        raise NotImplementedError("NoInstruct provider implementation needed")
-
-
-class E5EmbeddingProvider(EmbeddingProvider):
-    """E5 embedding provider - placeholder for now."""
-
-    def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings using E5 model."""
-        # TODO: Implement based on existing E5EmbeddingProvider
-        raise NotImplementedError("E5 provider implementation needed")
-
-
 EMBEDDING_CONFIGS = {
     "ibm-granite/granite-embedding-30m-english": {
         "keyword": "gran",
         "dimensions": 384,
         "batch_size": 64,
         "cls": GraniteEmbeddingProvider,
-    },
-    "ibm/slate-125m-english-rtrvr-v2": {
-        "keyword": "slate",
-        "dimensions": 768,
-        "batch_size": 2000,
-        "cls": WatsonEmbeddingProvider,
-    },
-    "avsolatorio/NoInstruct-small-Embedding-v0": {
-        "keyword": "noins",
-        "dimensions": 384,
-        "batch_size": 32,
-        "cls": NoInstructEmbeddingProvider,
-    },
-    "intfloat/e5-small-v2": {
-        "keyword": "e5sm",
-        "dimensions": 384,
-        "batch_size": 32,
-        "cls": E5EmbeddingProvider,
     },
 }
 

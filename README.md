@@ -99,8 +99,7 @@ docs2db db-status     # Check connection and stats
 docs2db pipeline <path>              # Complete workflow
 docs2db pipeline <path> \
   --output-file my-rag.sql \         # Custom output
-  --skip-context \                   # Skip contextual chunks (faster)
-  --model intfloat/e5-small-v2       # Different embedding model
+  --skip-context                     # Skip contextual chunks (faster)
 ```
 
 ### Individual Steps
@@ -173,7 +172,7 @@ docs2db_content/
 **Files per document:**
 - `source.json` - Ingested document in Docling JSON format
 - `chunks.json` - Text chunks (with optional LLM-generated context)
-- `gran.json` - Vector embeddings (filename varies by model: `slate.json`, `e5sm.json`, etc.)
+- `gran.json` - Vector embeddings (Granite model)
 - `meta.json` - Processing metadata and timestamps
 
 **Important:** Commit this directory to version control. It contains expensive preprocessing that can be reused across updates. Docs2DB automatically skips files that haven't changed.
@@ -181,7 +180,7 @@ docs2db_content/
 ## RAG Features
 
 - **Contextual chunks** - LLM-generated context for each chunk ([Anthropic's approach](https://www.anthropic.com/engineering/contextual-retrieval))
-- **Vector embeddings** - Multiple models: granite-30m, e5-small-v2, slate-125m, noinstruct-small
+- **Vector embeddings** - Granite 30M English model (384 dimensions)
 - **Full-text search** - PostgreSQL tsvector with GIN indexing for BM25
 - **Vector similarity** - pgvector extension with HNSW indexes
 - **Schema versioning** - Track metadata and schema changes

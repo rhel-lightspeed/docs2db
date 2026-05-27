@@ -53,7 +53,7 @@ src/docs2db/
 ├── chunks.py       # Contextual chunking with LLM (Ollama/OpenAI/WatsonX)
 ├── ingest.py       # Document ingestion via Docling
 ├── embed.py        # Embedding generation orchestration (multiprocessing)
-├── embeddings.py   # Embedding model configs (Granite, E5, Slate, etc.)
+├── embeddings.py   # Embedding model provider (Granite)
 ├── multiproc.py    # Multiprocessing batch processor utility
 ├── db_lifecycle.py # Database start/stop/destroy via Podman/Docker compose
 ├── audit.py        # Content directory auditing
