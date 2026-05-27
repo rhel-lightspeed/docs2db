@@ -13,12 +13,14 @@ from importlib.metadata import version
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from docling.document_converter import DocumentConverter
 
 import psutil
 import structlog
-
-from docling.document_converter import DocumentConverter
-from docling_core.types.io import DocumentStream
 
 from docs2db.config import settings
 from docs2db.const import METADATA_SCHEMA_VERSION
@@ -52,7 +54,7 @@ def _suppress_docling_logging() -> None:
 
 
 # Module-level singleton converter for efficiency
-_converter: DocumentConverter | None = None
+_converter = None
 
 # README content for the content directory
 _CONTENT_DIR_README = """# About this folder
@@ -88,12 +90,14 @@ the Docling JSON format plus associated processing artifacts.
 """
 
 
-def _get_converter() -> DocumentConverter:
+def _get_converter() -> "DocumentConverter":
     """Get or create the DocumentConverter singleton.
 
     Returns:
         DocumentConverter: The shared converter instance
     """
+    from docling.document_converter import DocumentConverter
+
     global _converter
     if _converter is None:
         _suppress_docling_logging()
@@ -458,6 +462,8 @@ def ingest_from_content(
         # Create document stream and convert
         json_path.parent.mkdir(parents=True, exist_ok=True)
         ensure_content_dir_readme(json_path.parts[0] if json_path.parts else None)
+
+        from docling_core.types.io import DocumentStream
 
         stream = DocumentStream(name=stream_name, stream=BytesIO(content))
 

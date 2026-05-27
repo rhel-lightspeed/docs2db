@@ -17,12 +17,6 @@ import httpx
 import psutil
 import structlog
 
-from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
-from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
-from docling_core.types.doc.document import DoclingDocument
-from transformers import AutoTokenizer
-from transformers.utils import logging as transformers_logging
-
 from docs2db.config import settings
 from docs2db.const import CHUNKING_CONFIG
 from docs2db.const import CHUNKING_SCHEMA_VERSION
@@ -185,6 +179,9 @@ def split_text_into_chunks(text: str, max_tokens: int) -> list[str]:
 
 @cache
 def get_tokenizer():
+    from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+    from transformers import AutoTokenizer
+
     hf_tokenizer = AutoTokenizer.from_pretrained(
         CHUNKING_CONFIG["tokenizer_model"],
         local_files_only=True,
@@ -652,6 +649,9 @@ def generate_chunks_for_document(
     if not force and not is_chunks_stale(chunks_file, source_file):
         return chunks_file
 
+    from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
+    from docling_core.types.doc.document import DoclingDocument
+
     dl_doc = DoclingDocument.model_validate_json(json_data=source_file.read_text().encode("utf-8"))
 
     # Create chunker and chunk document
@@ -803,6 +803,8 @@ def generate_chunks_batch(
     # Suppress transformers warnings about sequence length in worker processes.
     # (This logging was ruining the screen-stable Rich progress bar, also the
     # warning is a known "false alarm" per google search.)
+    from transformers.utils import logging as transformers_logging
+
     transformers_logging.set_verbosity_error()
 
     # Suppress httpx INFO-level logging (HTTP request logs)

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SECURITY.md vulnerability disclosure policy
 
 ### Fixed
+- Deferred heavy imports (`transformers`, `docling`, `torch`) in `utils.py`, `chunks.py`, and `ingest.py` — CLI startup drops from ~3.7s to ~0.2s for commands that don't need ML/document processing
 - Fixed structlog config corruption after single-threaded `load` — worker logging setup now saves and restores the main process config, even when a batch raises
 - Fixed document path mismatch in up-to-date check — skip-check now uses relative paths matching DB storage, preventing unnecessary re-processing
 - Added per-document savepoint isolation in batch loading — one failed document no longer aborts the entire batch transaction

@@ -10,9 +10,6 @@ from pathlib import Path
 import structlog
 import xxhash
 
-from transformers import AutoModel
-from transformers import AutoTokenizer
-
 from docs2db.exceptions import ConfigurationError
 
 
@@ -43,6 +40,9 @@ def ensure_model_available(model_id: str) -> None:
         model_id: Hugging Face model identifier
             (e.g., "ibm-granite/granite-embedding-30m-english")
     """
+    from transformers import AutoModel
+    from transformers import AutoTokenizer
+
     # Try to load from local cache only.
     try:
         AutoModel.from_pretrained(model_id, local_files_only=True)
