@@ -30,7 +30,7 @@ classifiers = [
 ]
 dependencies = [
     "cachetools>=7.1.4",
-    "docling>=2.95.0",
+    "docling>=2.96.1",
     "httpx>=0.28.1",
     "pgvector>=0.4.2",
     "psycopg[binary]>=3.3.4",
@@ -62,7 +62,7 @@ Issues = "https://github.com/rhel-lightspeed/docs2db/issues"
 Changelog = "https://github.com/rhel-lightspeed/docs2db/blob/main/CHANGELOG.md"
 
 [build-system]
-requires = ["uv_build>=0.11.16,<0.11.17"]
+requires = ["uv_build>=0.11.17,<0.11.18"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
@@ -76,8 +76,8 @@ explicit = true
 
 [dependency-groups]
 dev = [
-    "datamodel-code-generator>=0.58.0",
-    "ipython>=9.13.0",
+    "datamodel-code-generator>=0.59.0",
+    "ipython>=9.14.0",
     "pre-commit>=4.6.0",
     "pyright>=1.1.409",
     "pytest>=9.0.3",
@@ -85,9 +85,9 @@ dev = [
     "pytest-httpx>=0.36.2",
     "pytest-randomly>=4.1.0",
     "pytest-sugar>=1.1.1",
-    "python-gitlab>=8.3.0",
-    "ruff>=0.15.14",
-    "tox>=4.54.0",
+    "python-gitlab>=8.4.0",
+    "ruff>=0.15.15",
+    "tox>=4.55.0",
     "types-cachetools>=7.0.0.20260518",
     "types-tqdm>=4.67.3.20260518",
 ]
