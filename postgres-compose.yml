@@ -11,7 +11,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ragdb
     ports:
-      - 5432:5432
+      - 127.0.0.1:5432:5432
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -26,7 +26,7 @@ services:
       POSTGRES_PASSWORD: test_password
       POSTGRES_DB: test_docs2db
     ports:
-      - 5433:5432
+      - 127.0.0.1:5433:5432
     volumes:
       - test_pgdata:/var/lib/postgresql/data
     healthcheck:
