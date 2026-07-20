@@ -40,7 +40,7 @@ def get_db_config() -> dict[str, str]:
     1. Environment variables (POSTGRES_HOST, POSTGRES_PORT, etc.)
     2. DATABASE_URL environment variable
     3. postgres-compose.yml in current working directory
-    4. Default values (localhost:5432, user=postgres, db=ragdb)
+    4. Default values (localhost:5432, db=ragdb)
 
     Raises:
         ConfigurationError: If both DATABASE_URL and individual POSTGRES_* vars are set
@@ -66,13 +66,12 @@ def get_db_config() -> dict[str, str]:
             "POSTGRES_* environment variables are set. Please use one or the other."
         )
 
-    # Start with sensible defaults
     config = {
         "host": "localhost",
         "port": "5432",
         "database": "ragdb",
-        "user": "postgres",
-        "password": "postgres",
+        "user": "",
+        "password": "",
     }
 
     # Try postgres-compose.yml in current working directory

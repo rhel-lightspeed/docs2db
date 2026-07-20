@@ -55,8 +55,8 @@ services:
     image: docker.io/pgvector/pgvector:pg17
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: ragdb
     ports:
       - 127.0.0.1:5432:5432

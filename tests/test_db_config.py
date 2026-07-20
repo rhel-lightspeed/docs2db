@@ -31,8 +31,8 @@ def test_default_config(clean_env, tmp_path, monkeypatch):
     assert config["host"] == "localhost"
     assert config["port"] == "5432"
     assert config["database"] == "ragdb"
-    assert config["user"] == "postgres"
-    assert config["password"] == "postgres"  # noqa: S105
+    assert config["user"] == ""
+    assert config["password"] == ""
 
 
 def test_env_vars_override_defaults(clean_env, tmp_path, monkeypatch):
@@ -169,7 +169,7 @@ def test_compose_file_malformed(clean_env, tmp_path, monkeypatch):
     config = get_db_config()
 
     # Should fall back to defaults when compose file is malformed
-    assert config["user"] == "postgres"
+    assert config["user"] == ""
     assert config["database"] == "ragdb"
     assert config["host"] == "localhost"
 
@@ -212,7 +212,7 @@ def test_partial_env_vars(clean_env, tmp_path, monkeypatch):
     assert config["host"] == "custom.host.com"  # From env
     assert config["port"] == "5432"  # Default
     assert config["database"] == "ragdb"  # Default
-    assert config["user"] == "postgres"  # Default
+    assert config["user"] == ""  # Default
 
 
 def test_database_url_overrides_compose(clean_env, tmp_path, monkeypatch):
