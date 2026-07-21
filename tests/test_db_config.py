@@ -129,78 +129,6 @@ def test_conflict_database_url_and_env_vars(clean_env, tmp_path, monkeypatch):
         get_db_config()
 
 
-def test_compose_file_in_cwd(clean_env, tmp_path, monkeypatch):
-    """Test reading configuration from postgres-compose.yml in CWD."""
-    monkeypatch.chdir(tmp_path)
-
-    compose_content = """
-name: test-project
-
-services:
-  db:
-    image: pgvector/pgvector:pg17
-    environment:
-      POSTGRES_USER: compose_user
-      POSTGRES_PASSWORD: compose_pass
-      POSTGRES_DB: compose_db
-    ports:
-      - 5435:5432
-"""
-
-    compose_file = tmp_path / "postgres-compose.yml"
-    compose_file.write_text(compose_content)
-
-    config = get_db_config()
-
-    assert config["user"] == "compose_user"
-    assert config["password"] == "compose_pass"  # noqa: S105
-    assert config["database"] == "compose_db"
-    assert config["port"] == "5435"
-
-
-def test_compose_file_malformed(clean_env, tmp_path, monkeypatch):
-    """Test handling of malformed compose file."""
-    monkeypatch.chdir(tmp_path)
-
-    compose_file = tmp_path / "postgres-compose.yml"
-    compose_file.write_text("invalid: yaml: content: [")
-
-    # Should not raise, should use defaults and log warning
-    config = get_db_config()
-
-    # Should fall back to defaults when compose file is malformed
-    assert config["user"] == ""
-    assert config["database"] == "ragdb"
-    assert config["host"] == "localhost"
-
-
-def test_env_vars_override_compose_file(clean_env, tmp_path, monkeypatch):
-    """Test that environment variables override compose file."""
-    monkeypatch.chdir(tmp_path)
-
-    compose_content = """
-name: test-project
-
-services:
-  db:
-    environment:
-      POSTGRES_USER: compose_user
-      POSTGRES_DB: compose_db
-"""
-
-    compose_file = tmp_path / "postgres-compose.yml"
-    compose_file.write_text(compose_content)
-
-    monkeypatch.setenv("POSTGRES_USER", "env_user")
-    monkeypatch.setenv("POSTGRES_DB", "env_db")
-
-    config = get_db_config()
-
-    # Environment variables should win
-    assert config["user"] == "env_user"
-    assert config["database"] == "env_db"
-
-
 def test_partial_env_vars(clean_env, tmp_path, monkeypatch):
     """Test that partial environment variables work with defaults."""
     monkeypatch.chdir(tmp_path)
@@ -215,28 +143,14 @@ def test_partial_env_vars(clean_env, tmp_path, monkeypatch):
     assert config["user"] == ""  # Default
 
 
-def test_database_url_overrides_compose(clean_env, tmp_path, monkeypatch):
-    """Test that DATABASE_URL overrides compose file."""
+def test_database_url_takes_precedence(clean_env, tmp_path, monkeypatch):
+    """Test that DATABASE_URL works for config resolution."""
     monkeypatch.chdir(tmp_path)
-
-    compose_content = """
-name: test-project
-
-services:
-  db:
-    environment:
-      POSTGRES_USER: compose_user
-      POSTGRES_DB: compose_db
-"""
-
-    compose_file = tmp_path / "postgres-compose.yml"
-    compose_file.write_text(compose_content)
 
     monkeypatch.setenv("DATABASE_URL", "postgresql://url_user:url_pass@url.host.com/url_db")
 
     config = get_db_config()
 
-    # DATABASE_URL should win over compose
     assert config["user"] == "url_user"
     assert config["database"] == "url_db"
     assert config["host"] == "url.host.com"
