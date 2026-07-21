@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-07-21
+
+### Security
+
+- Bind dev PostgreSQL containers to loopback (`127.0.0.1`) instead of all interfaces — prevents LAN exposure on untrusted networks (RSPEED-3361)
+
 ### Added
 - GitHub Actions CI workflow (lint + PostgreSQL-backed test suite)
 - OpenSSF Scorecard workflow for security scoring
@@ -25,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `test_load_documents_force_parameter` — test now uses correct fixture layout and exercises both force=False (skip) and force=True (reload) paths
 - Fixed `test_load_documents_parameter_validation` — removed broad exception swallowing that masked real failures
 - Fixed `test_database_functions_interface` — removed vacuous assertion (check_database_status returns None by contract)
+- Fixed port parsing in `get_db_config()` to handle 3-part port mappings (`ip:host_port:container_port`) from compose files
 
 ### Removed
 - Removed unimplemented embedding provider stubs (Watson/Slate, SentenceTransformer, NoInstruct, E5) — only Granite was functional
@@ -219,7 +226,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite
 - Development tooling: Makefile, Docker Compose setup for PostgreSQL
 
-[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.4...v0.4.5
+[0.4.4]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/rhel-lightspeed/docs2db/compare/v0.4.0...v0.4.1

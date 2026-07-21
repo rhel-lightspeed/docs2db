@@ -59,7 +59,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ragdb
     ports:
-      - 5432:5432
+      - 127.0.0.1:5432:5432
     volumes:
       - pgdata:/var/lib/postgresql/data
 

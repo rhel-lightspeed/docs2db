@@ -98,11 +98,17 @@ def get_db_config() -> dict[str, str]:
                 config["password"] = env["POSTGRES_PASSWORD"]
 
             # Extract port from ports mapping if available
+            # Handles both "host_port:container_port" and "ip:host_port:container_port"
             ports = db_service.get("ports", [])
             for port_mapping in ports:
                 if isinstance(port_mapping, str) and ":5432" in port_mapping:
-                    host_port = port_mapping.split(":")[0]
-                    config["port"] = host_port
+                    parts = port_mapping.split(":")
+                    if len(parts) == 3:
+                        # ip:host_port:container_port (e.g. "127.0.0.1:5432:5432")
+                        config["port"] = parts[1]
+                    elif len(parts) == 2:
+                        # host_port:container_port (e.g. "5432:5432")
+                        config["port"] = parts[0]
                     break
 
     # DATABASE_URL takes precedence over compose file but not over individual vars
