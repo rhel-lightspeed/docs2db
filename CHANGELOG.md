@@ -10,11 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `POSTGRES_USER` and `POSTGRES_PASSWORD` are now required; the compose file and database config no longer provide hardcoded default credentials
 - Removed compose file parsing from database config resolution; credentials must come from environment variables, `DATABASE_URL`, or CLI arguments
-
 - Bump runtime dependencies: docling 2.113.0, pgvector 0.5.0, structlog 26.1.0, tqdm 4.68.4, xxhash 3.8.1, ibm-watsonx-ai 1.5.14
 - Bump dev dependencies: datamodel-code-generator 0.68.1, ipython 9.15.0, pyright 1.1.411, pytest 9.1.1, ruff 0.15.21, tox 4.56.4
 - Bump CI actions: actions/checkout v7, actions/setup-python v6 (latest), astral-sh/setup-uv v8.3.2, codeql-action v4.37.0
 - Bump build system: uv_build 0.11.28
+- Added `lint`, `format`, `typecheck`, and `clean` targets to Makefile
+- Narrowed broad `except Exception` clauses in `database.py` to specific types (`psycopg.Error`, `psycopg.errors.UndefinedTable`, `yaml.YAMLError`) and removed unnecessary try/except blocks
+- Replaced `subprocess.run()` CLI integration tests with Typer `CliRunner` for in-process invocation — faster execution, no S603/S607 suppressions needed
+- Converted database layer from async psycopg (`AsyncConnection`) to sync psycopg (`Connection`), eliminating nested event loop issues with single-threaded batch processing
+- Removed `pytest-asyncio` and `greenlet` dev dependencies
+- Bumped `ibm-watsonx-ai` minimum version to `1.5.12`
+- Constrained Renovate to keep `typer` at `<0.22.0` while `docling-slim` pins it; prevents recurring broken update PRs (#33)
 
 ### Added
 - GitHub Actions CI workflow (lint + PostgreSQL-backed test suite)
@@ -37,15 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Removed unimplemented embedding provider stubs (Watson/Slate, SentenceTransformer, NoInstruct, E5) — only Granite was functional
-
-### Changed
-- Added `lint`, `format`, `typecheck`, and `clean` targets to Makefile
-- Narrowed broad `except Exception` clauses in `database.py` to specific types (`psycopg.Error`, `psycopg.errors.UndefinedTable`, `yaml.YAMLError`) and removed unnecessary try/except blocks
-- Replaced `subprocess.run()` CLI integration tests with Typer `CliRunner` for in-process invocation — faster execution, no S603/S607 suppressions needed
-- Converted database layer from async psycopg (`AsyncConnection`) to sync psycopg (`Connection`), eliminating nested event loop issues with single-threaded batch processing
-- Removed `pytest-asyncio` and `greenlet` dev dependencies
-- Bumped `ibm-watsonx-ai` minimum version to `1.5.12`
-- Constrained Renovate to keep `typer` at `<0.22.0` while `docling-slim` pins it; prevents recurring broken update PRs (#33)
 
 ## [0.4.4] - 2026-03-16
 
