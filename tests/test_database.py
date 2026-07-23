@@ -16,6 +16,13 @@ from tests.test_config import get_test_db_config
 from tests.test_config import should_skip_postgres_tests
 
 
+@pytest.fixture(autouse=True)
+def _set_db_credentials(monkeypatch):
+    config = get_test_db_config()
+    monkeypatch.setenv("POSTGRES_USER", config["user"])
+    monkeypatch.setenv("POSTGRES_PASSWORD", config["password"])
+
+
 def create_connection():
     """Create a connection to the test database."""
     config = get_test_db_config()
