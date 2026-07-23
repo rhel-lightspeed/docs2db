@@ -57,8 +57,9 @@ Each stage can also be run individually (`ingest`, `chunk`, `embed`, `load`). Al
 1. CLI arguments: `--host`, `--port`, `--db`, `--user`, `--password`
 2. Environment variables: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 3. `DATABASE_URL`: `postgresql://user:pass@host:port/database`
-4. `postgres-compose.yml` in current directory
-5. Defaults: `localhost:5432`, user=`postgres`, password=`postgres`, db=`ragdb`
+4. Defaults: `localhost:5432`, db=`ragdb`
+
+`POSTGRES_USER` and `POSTGRES_PASSWORD` have no defaults and must be provided through one of the above methods.
 
 **Examples:**
 

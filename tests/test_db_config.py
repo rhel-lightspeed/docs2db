@@ -21,18 +21,12 @@ def clean_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
-def test_default_config(clean_env, tmp_path, monkeypatch):
-    """Test default configuration when no config sources are available."""
-    # Change to temp directory with no compose file
+def test_default_config_exits_without_credentials(clean_env, tmp_path, monkeypatch):
+    """Test that missing user/password raises ConfigurationError."""
     monkeypatch.chdir(tmp_path)
 
-    config = get_db_config()
-
-    assert config["host"] == "localhost"
-    assert config["port"] == "5432"
-    assert config["database"] == "ragdb"
-    assert config["user"] == "postgres"
-    assert config["password"] == "postgres"  # noqa: S105
+    with pytest.raises(ConfigurationError, match="Missing required database credentials"):
+        get_db_config()
 
 
 def test_env_vars_override_defaults(clean_env, tmp_path, monkeypatch):
@@ -91,14 +85,12 @@ def test_database_url_without_port(clean_env, tmp_path, monkeypatch):
 
 
 def test_database_url_without_password(clean_env, tmp_path, monkeypatch):
-    """Test DATABASE_URL without password."""
+    """Test DATABASE_URL without password raises ConfigurationError."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DATABASE_URL", "postgresql://user@localhost:5432/mydb")
 
-    config = get_db_config()
-
-    assert config["user"] == "user"
-    assert config["host"] == "localhost"
+    with pytest.raises(ConfigurationError, match="Missing required database credentials"):
+        get_db_config()
 
 
 def test_database_url_invalid_scheme(clean_env, tmp_path, monkeypatch):
@@ -129,114 +121,39 @@ def test_conflict_database_url_and_env_vars(clean_env, tmp_path, monkeypatch):
         get_db_config()
 
 
-def test_compose_file_in_cwd(clean_env, tmp_path, monkeypatch):
-    """Test reading configuration from postgres-compose.yml in CWD."""
-    monkeypatch.chdir(tmp_path)
-
-    compose_content = """
-name: test-project
-
-services:
-  db:
-    image: pgvector/pgvector:pg17
-    environment:
-      POSTGRES_USER: compose_user
-      POSTGRES_PASSWORD: compose_pass
-      POSTGRES_DB: compose_db
-    ports:
-      - 5435:5432
-"""
-
-    compose_file = tmp_path / "postgres-compose.yml"
-    compose_file.write_text(compose_content)
-
-    config = get_db_config()
-
-    assert config["user"] == "compose_user"
-    assert config["password"] == "compose_pass"  # noqa: S105
-    assert config["database"] == "compose_db"
-    assert config["port"] == "5435"
-
-
-def test_compose_file_malformed(clean_env, tmp_path, monkeypatch):
-    """Test handling of malformed compose file."""
-    monkeypatch.chdir(tmp_path)
-
-    compose_file = tmp_path / "postgres-compose.yml"
-    compose_file.write_text("invalid: yaml: content: [")
-
-    # Should not raise, should use defaults and log warning
-    config = get_db_config()
-
-    # Should fall back to defaults when compose file is malformed
-    assert config["user"] == "postgres"
-    assert config["database"] == "ragdb"
-    assert config["host"] == "localhost"
-
-
-def test_env_vars_override_compose_file(clean_env, tmp_path, monkeypatch):
-    """Test that environment variables override compose file."""
-    monkeypatch.chdir(tmp_path)
-
-    compose_content = """
-name: test-project
-
-services:
-  db:
-    environment:
-      POSTGRES_USER: compose_user
-      POSTGRES_DB: compose_db
-"""
-
-    compose_file = tmp_path / "postgres-compose.yml"
-    compose_file.write_text(compose_content)
-
-    monkeypatch.setenv("POSTGRES_USER", "env_user")
-    monkeypatch.setenv("POSTGRES_DB", "env_db")
-
-    config = get_db_config()
-
-    # Environment variables should win
-    assert config["user"] == "env_user"
-    assert config["database"] == "env_db"
-
-
-def test_partial_env_vars(clean_env, tmp_path, monkeypatch):
-    """Test that partial environment variables work with defaults."""
+def test_partial_env_vars_exits_without_credentials(clean_env, tmp_path, monkeypatch):
+    """Test that setting only host without user/password raises ConfigurationError."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("POSTGRES_HOST", "custom.host.com")
-    # Don't set other vars
+
+    with pytest.raises(ConfigurationError, match="Missing required database credentials"):
+        get_db_config()
+
+
+def test_partial_env_vars_with_credentials(clean_env, tmp_path, monkeypatch):
+    """Test that partial environment variables work when credentials are provided."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POSTGRES_HOST", "custom.host.com")
+    monkeypatch.setenv("POSTGRES_USER", "myuser")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "mypass")
 
     config = get_db_config()
 
-    assert config["host"] == "custom.host.com"  # From env
-    assert config["port"] == "5432"  # Default
-    assert config["database"] == "ragdb"  # Default
-    assert config["user"] == "postgres"  # Default
+    assert config["host"] == "custom.host.com"
+    assert config["port"] == "5432"
+    assert config["database"] == "ragdb"
+    assert config["user"] == "myuser"
+    assert config["password"] == "mypass"  # noqa: S105
 
 
-def test_database_url_overrides_compose(clean_env, tmp_path, monkeypatch):
-    """Test that DATABASE_URL overrides compose file."""
+def test_database_url_takes_precedence(clean_env, tmp_path, monkeypatch):
+    """Test that DATABASE_URL works for config resolution."""
     monkeypatch.chdir(tmp_path)
-
-    compose_content = """
-name: test-project
-
-services:
-  db:
-    environment:
-      POSTGRES_USER: compose_user
-      POSTGRES_DB: compose_db
-"""
-
-    compose_file = tmp_path / "postgres-compose.yml"
-    compose_file.write_text(compose_content)
 
     monkeypatch.setenv("DATABASE_URL", "postgresql://url_user:url_pass@url.host.com/url_db")
 
     config = get_db_config()
 
-    # DATABASE_URL should win over compose
     assert config["user"] == "url_user"
     assert config["database"] == "url_db"
     assert config["host"] == "url.host.com"

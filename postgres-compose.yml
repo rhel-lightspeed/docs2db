@@ -7,11 +7,11 @@ services:
     image: docker.io/pgvector/pgvector:pg17
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: ragdb
     ports:
-      - 5432:5432
+      - 127.0.0.1:5432:5432
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -22,15 +22,15 @@ services:
     image: docker.io/pgvector/pgvector:pg17
     restart: always
     environment:
-      POSTGRES_USER: test_user
-      POSTGRES_PASSWORD: test_password
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: test_docs2db
     ports:
-      - 5433:5432
+      - 127.0.0.1:5433:5432
     volumes:
       - test_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U test_user -d test_docs2db"]
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d test_docs2db"]
       interval: 5s
       timeout: 5s
       retries: 5

@@ -14,7 +14,6 @@ from typing import Any
 import psutil
 import psycopg
 import structlog
-import yaml
 
 from psycopg.sql import Identifier
 from psycopg.sql import SQL
@@ -39,8 +38,6 @@ def get_db_config() -> dict[str, str]:
     Configuration precedence (highest to lowest):
     1. Environment variables (POSTGRES_HOST, POSTGRES_PORT, etc.)
     2. DATABASE_URL environment variable
-    3. postgres-compose.yml in current working directory
-    4. Default values (localhost:5432, user=postgres, db=ragdb)
 
     Raises:
         ConfigurationError: If both DATABASE_URL and individual POSTGRES_* vars are set
@@ -66,46 +63,14 @@ def get_db_config() -> dict[str, str]:
             "POSTGRES_* environment variables are set. Please use one or the other."
         )
 
-    # Start with sensible defaults
     config = {
         "host": "localhost",
         "port": "5432",
         "database": "ragdb",
-        "user": "postgres",
-        "password": "postgres",
+        "user": "",
+        "password": "",
     }
 
-    # Try postgres-compose.yml in current working directory
-    compose_file = Path.cwd() / "postgres-compose.yml"
-    if compose_file.exists():
-        with open(compose_file) as f:
-            try:
-                compose_data = yaml.safe_load(f)
-            except yaml.YAMLError:
-                compose_data = None
-
-        if compose_data is None:
-            logger.warning("postgres-compose.yml exists but does not contain valid YAML")
-        else:
-            db_service = compose_data.get("services", {}).get("db", {})
-            env = db_service.get("environment", {})
-
-            if "POSTGRES_DB" in env:
-                config["database"] = env["POSTGRES_DB"]
-            if "POSTGRES_USER" in env:
-                config["user"] = env["POSTGRES_USER"]
-            if "POSTGRES_PASSWORD" in env:
-                config["password"] = env["POSTGRES_PASSWORD"]
-
-            # Extract port from ports mapping if available
-            ports = db_service.get("ports", [])
-            for port_mapping in ports:
-                if isinstance(port_mapping, str) and ":5432" in port_mapping:
-                    host_port = port_mapping.split(":")[0]
-                    config["port"] = host_port
-                    break
-
-    # DATABASE_URL takes precedence over compose file but not over individual vars
     if has_database_url:
         database_url = os.getenv("DATABASE_URL", "")
         # Parse postgresql://user:password@host:port/database
@@ -154,6 +119,10 @@ def get_db_config() -> dict[str, str]:
         config["user"] = os.getenv("POSTGRES_USER", "")
     if os.getenv("POSTGRES_PASSWORD"):
         config["password"] = os.getenv("POSTGRES_PASSWORD", "")
+
+    required = ("user", "password")
+    if any(not config.get(value) for value in required):
+        raise ConfigurationError("Missing required database credentials: user and password must be set.")
 
     return config
 
@@ -1590,11 +1559,11 @@ def load_documents(
         model: Embedding model name (defaults to settings.embedding_model)
         pattern: Directory pattern to match (e.g., "external/**" or "additional_documents/*")
                  Defaults to "**" which loads all documents.
-        host: Database host (auto-detected from compose file if None)
-        port: Database port (auto-detected from compose file if None)
-        db: Database name (auto-detected from compose file if None)
-        user: Database user (auto-detected from compose file if None)
-        password: Database password (auto-detected from compose file if None)
+        host: Database host (defaults to localhost if None)
+        port: Database port (defaults to 5432 if None)
+        db: Database name (defaults to ragdb if None)
+        user: Database user
+        password: Database password
         force: Force reload existing documents
         batch_size: Files per batch for each worker
 
@@ -1819,11 +1788,11 @@ def dump_database(
 
     Args:
         output_file: Output file path for the database dump
-        host: Database host (auto-detected from compose file if None)
-        port: Database port (auto-detected from compose file if None)
-        db: Database name (auto-detected from compose file if None)
-        user: Database user (auto-detected from compose file if None)
-        password: Database password (auto-detected from compose file if None)
+        host: Database host (defaults to localhost if None)
+        port: Database port (defaults to 5432 if None)
+        db: Database name (defaults to ragdb if None)
+        user: Database user
+        password: Database password
         verbose: Show pg_dump output
 
     Returns:
@@ -1908,11 +1877,11 @@ def restore_database(
 
     Args:
         input_file: Input file path for the database dump
-        host: Database host (auto-detected from compose file if None)
-        port: Database port (auto-detected from compose file if None)
-        db: Database name (auto-detected from compose file if None)
-        user: Database user (auto-detected from compose file if None)
-        password: Database password (auto-detected from compose file if None)
+        host: Database host (defaults to localhost if None)
+        port: Database port (defaults to 5432 if None)
+        db: Database name (defaults to ragdb if None)
+        user: Database user
+        password: Database password
         verbose: Show psql output
 
     Returns:
