@@ -21,18 +21,12 @@ def clean_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
-def test_default_config(clean_env, tmp_path, monkeypatch):
-    """Test default configuration when no config sources are available."""
-    # Change to temp directory with no compose file
+def test_default_config_exits_without_credentials(clean_env, tmp_path, monkeypatch):
+    """Test that missing user/password raises ConfigurationError."""
     monkeypatch.chdir(tmp_path)
 
-    config = get_db_config()
-
-    assert config["host"] == "localhost"
-    assert config["port"] == "5432"
-    assert config["database"] == "ragdb"
-    assert config["user"] == ""
-    assert config["password"] == ""
+    with pytest.raises(ConfigurationError, match="Missing required database credentials"):
+        get_db_config()
 
 
 def test_env_vars_override_defaults(clean_env, tmp_path, monkeypatch):
@@ -91,14 +85,12 @@ def test_database_url_without_port(clean_env, tmp_path, monkeypatch):
 
 
 def test_database_url_without_password(clean_env, tmp_path, monkeypatch):
-    """Test DATABASE_URL without password."""
+    """Test DATABASE_URL without password raises ConfigurationError."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DATABASE_URL", "postgresql://user@localhost:5432/mydb")
 
-    config = get_db_config()
-
-    assert config["user"] == "user"
-    assert config["host"] == "localhost"
+    with pytest.raises(ConfigurationError, match="Missing required database credentials"):
+        get_db_config()
 
 
 def test_database_url_invalid_scheme(clean_env, tmp_path, monkeypatch):
@@ -129,18 +121,29 @@ def test_conflict_database_url_and_env_vars(clean_env, tmp_path, monkeypatch):
         get_db_config()
 
 
-def test_partial_env_vars(clean_env, tmp_path, monkeypatch):
-    """Test that partial environment variables work with defaults."""
+def test_partial_env_vars_exits_without_credentials(clean_env, tmp_path, monkeypatch):
+    """Test that setting only host without user/password raises ConfigurationError."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("POSTGRES_HOST", "custom.host.com")
-    # Don't set other vars
+
+    with pytest.raises(ConfigurationError, match="Missing required database credentials"):
+        get_db_config()
+
+
+def test_partial_env_vars_with_credentials(clean_env, tmp_path, monkeypatch):
+    """Test that partial environment variables work when credentials are provided."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POSTGRES_HOST", "custom.host.com")
+    monkeypatch.setenv("POSTGRES_USER", "myuser")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "mypass")
 
     config = get_db_config()
 
-    assert config["host"] == "custom.host.com"  # From env
-    assert config["port"] == "5432"  # Default
-    assert config["database"] == "ragdb"  # Default
-    assert config["user"] == ""  # Default
+    assert config["host"] == "custom.host.com"
+    assert config["port"] == "5432"
+    assert config["database"] == "ragdb"
+    assert config["user"] == "myuser"
+    assert config["password"] == "mypass"  # noqa: S105
 
 
 def test_database_url_takes_precedence(clean_env, tmp_path, monkeypatch):

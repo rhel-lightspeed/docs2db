@@ -120,6 +120,10 @@ def get_db_config() -> dict[str, str]:
     if os.getenv("POSTGRES_PASSWORD"):
         config["password"] = os.getenv("POSTGRES_PASSWORD", "")
 
+    required = ("user", "password")
+    if any(not config.get(value) for value in required):
+        raise ConfigurationError("Missing required database credentials: user and password must be set.")
+
     return config
 
 
