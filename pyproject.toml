@@ -29,8 +29,8 @@ classifiers = [
     "Topic :: Text Processing :: General",
 ]
 dependencies = [
-    "cachetools>=7.1.4",
-    "docling>=2.113.0",
+    "cachetools>=7.1.7",
+    "docling>=2.123.1",
     "httpx>=0.28.1",
     "pgvector>=0.5.0",
     "psycopg[binary]>=3.3.4",
@@ -41,14 +41,14 @@ dependencies = [
     "structlog>=26.1.0",
     "torch>=2.7.1",
     "torchvision>=0.23.0",
-    "tqdm>=4.68.4",
+    "tqdm>=4.70.0",
     "typer>=0.21.2",
     "xxhash>=3.8.1",
 ]
 
 [project.optional-dependencies]
 watsonx = [
-    "ibm-watsonx-ai>=1.5.14",
+    "ibm-watsonx-ai>=1.7.1",
 ]
 
 [project.scripts]
@@ -62,7 +62,7 @@ Issues = "https://github.com/rhel-lightspeed/docs2db/issues"
 Changelog = "https://github.com/rhel-lightspeed/docs2db/blob/main/CHANGELOG.md"
 
 [build-system]
-requires = ["uv_build>=0.11.28,<0.11.29"]
+requires = ["uv_build>=0.12.7,<0.12.8"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
@@ -77,19 +77,19 @@ explicit = true
 [dependency-groups]
 dev = [
     "datamodel-code-generator>=0.68.1",
-    "ipython>=9.15.0",
-    "pre-commit>=4.6.0",
+    "ipython>=9.17.0",
+    "pre-commit>=4.6.2",
     "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pytest-httpx>=0.36.2",
     "pytest-randomly>=4.1.0",
     "pytest-sugar>=1.1.1",
-    "python-gitlab>=8.4.0",
-    "ruff>=0.15.21",
-    "tox>=4.56.4",
+    "python-gitlab>=8.5.0",
+    "ruff>=0.16.5",
+    "tox>=4.61.1",
     "types-cachetools>=7.0.0.20260713",
-    "types-tqdm>=4.68.0.20260608",
+    "types-tqdm>=4.70.0.20260827",
 ]
 
 [tool.pytest.ini_options]
