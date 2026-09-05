@@ -43,7 +43,7 @@ dependencies = [
     "torchvision>=0.23.0",
     "tqdm>=4.68.4",
     "typer>=0.21.2",
-    "xxhash>=3.8.1",
+    "xxhash>=4.0.1",
 ]
 
 [project.optional-dependencies]
