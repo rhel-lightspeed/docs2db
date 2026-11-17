@@ -6,7 +6,9 @@
     "config:best-practices"
   ],
   "labels": ["dependencies"],
-  "dependencyDashboard": true,
+  "dependencyDashboard": {
+    "enabled": true
+  },
   "prHourlyLimit": 0,
   "prConcurrentLimit": 0,
   "minimumReleaseAge": "7 days",
