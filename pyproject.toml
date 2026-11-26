@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Text Processing :: General",
 ]
 dependencies = [
-    "cachetools>=7.1.4",
+    "cachetools>=8.0.2",
     "docling>=2.113.0",
     "httpx>=0.28.1",
     "pgvector>=0.5.0",
